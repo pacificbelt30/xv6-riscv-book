@@ -28,10 +28,10 @@ src:
 	cd $(SRC); git pull; true
 
 book.pdf: src book.tex $(TEX)
-	pdflatex book.tex
+	ptex2pdf -l book.tex
 	bibtex book
-	pdflatex book.tex
-	pdflatex book.tex
+	ptex2pdf -l book.tex
+	ptex2pdf -l book.tex
 
 clean:
 	rm -f book.aux book.idx book.ilg book.ind book.log\
