@@ -37,5 +37,5 @@ clean:
 	rm -f book.aux book.idx book.ilg book.ind book.log\
 	 	book.toc book.bbl book.blg book.out
 	rm -rf latex.out
-	rm -rf $(SRC)
+#	rm -rf $(SRC)
 

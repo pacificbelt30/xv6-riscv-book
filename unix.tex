@@ -1,172 +1,146 @@
-\chapter{Operating system interfaces}
+\chapter{オペレーティングシステムのインタフェース}
 \label{CH:UNIX}
 
-The job of an operating system is to share a computer among
-multiple programs and to provide a more useful set of services
-than the hardware alone supports.
-The operating system manages and abstracts
-the low-level hardware, so that, for example,
-a word processor need not concern itself with which type
-of disk hardware is being used.
-It also shares the hardware among multiple programs so
-that they run (or appear to run) at the same time.
-Finally, operating systems provide controlled ways for programs
-to interact, so that they can share data or work together.
 
-An operating system provides services to user programs through an interface.
+オペレーティングシステムの役割は，複数のプログラムで 1 台のコンピュータ
+を共有することと，ハードウェア単独よりも便利なサービスを提供することに
+あります．オペレーティングシステムは下層にあるハードウェアを管理・抽象
+化します．そうすることで，たとえば，ワードプロセッサがディスクハードウェ
+アの種類を気にしなくてよくなります．また，複数のプログラムでハードウェ
+アを共有することで，それらを同時に実行することができます．また，プログ
+ラム同士がデータを共有したり一緒に働いたりするため
+の，管理された方法を提供します．
+
+オペレーティングシステムは，あるインタフェースを介して，ユーザープログ
+ラムにサービスを提供します．
 \index{interface design}
-Designing a good interface turns out to be
-difficult.  On the one hand, we would like the interface to be
-simple and narrow because that makes it easier to get the
-implementation right.  On the other hand,
-we may be tempted to offer many sophisticated features to applications.
-The trick in
-resolving this tension is to design interfaces that rely on a few
-mechanisms that can be combined to provide much generality.
+良いインタフェースを設計するのは難しいこと
+が分かっています．単純かつ限定的なインタフェースは実装のしやすさで優れて
+いますが，洗練されたたくさんの機能を提供したいという誘惑もあります．両
+立するためのトリックは，少数のメカニズムにしか依存しないインタフェース
+を設計し，それらの組み合わせにより多様性を実現することです．
 
-This book uses a single operating system as a concrete example to
-illustrate operating system concepts.  That operating system,
-xv6, provides the basic interfaces introduced by Ken Thompson and
-Dennis Ritchie's Unix operating system~\cite{unix}, as well as mimicking Unix's
-internal design.  Unix provides a
-narrow interface whose mechanisms combine well, offering a surprising
-degree of generality.  This interface has been so successful that
-modern operating systems—BSD, Linux, Mac OS X, Solaris, and even, to a
-lesser extent, Microsoft Windows—have Unix-like interfaces.
-Understanding xv6 is a good start toward understanding any of these
-systems and many others.
 
-As shown in 
-Figure~\ref{fig:os},
-xv6 takes the traditional form of a
-\indextext{kernel},
-a special program that provides
-services to running programs.
-Each running program, called a
-\indextext{process},
-has memory containing instructions, data, and a stack. The
-instructions implement the
-program's computation.  The data are the variables on which
-the computation acts. The stack organizes the program's procedure calls.
+この本は，オペレーティングシステムの概念を学ぶための実例として，あるオ
+ペレーティングシステムを用います．それは xv6 と言い，Ken
+Thompson と Dennis Ritchie による Unix オペレーティングシステム~\cite{unix} の基本的
+なインタフェースを提供するとともに，Unix の内部設計を模倣していま
+す．Unix は限定されたインタフェースを提供しますが，それらは巧みに組み合
+わせることができ，驚くほどの多様さを実現することができます．このインタ
+フェースは大成功しており，現代的なオペレーティングシステムであるBSD,
+Linux, Mac OS X, Solaris, また程度の差はありますが Microsoft Windows ま
+でもが Unix 的なインタフェースを持っています．xv6 を理解することは，そ
+のようなオペレーティングシステムを理解するよいスタート地点になるはずで
+す．
 
-When a
-process needs to invoke a kernel service, it invokes a procedure call
-in the operating system interface.  Such a procedure is called a
-\indextext{system call}.
-The system call enters the kernel;
-the kernel performs the service and returns.
-Thus a process alternates between executing in
-\indextext{user space}
-and
-\indextext{kernel space}.
+図~\ref{fig:os} に示すように，xv6 は古典的な\indextext{カーネル}，すなわち実行
+中のプログラムにサービスを提供する特殊なプログラムのかたちをとります．
+実行中の各プログラム（\indextext{プロセス}と呼びます）は命令列を含むメモリ，データ，
+およびスタックを持ちます．命令列は，プログラムの計算を実現します．デー
+タは，計算が対象とする変数のことです．スタックはプログラムのプロシージャ
+呼び出し (procedure call) を管理します．
 
-The kernel uses the CPU's hardware protection mechanisms to
-ensure that each process executing in user space can access only
-its own memory.
-The kernel executes with the hardware privileges required to
-implement these protections; user programs execute without
-those privileges.
-When a user program invokes a system call, the hardware
-raises the privilege level and starts executing a pre-arranged
-function in the kernel.
+
+プロセスがカーネルのサービスを呼び出すときは，オペレーティングシステムの
+インタフェースを介してプロシージャ呼び出しを行います．
+そのようなプロシージャは\indextext{システムコール}と呼ばれます．システムコールはカー
+ネルに入り，サービスを実行してリターンします．すなわちプロセスは，
+\indextext{ユーザ空間}と\indextext{カーネル空間}を行ったり来たりします．
+
+
+カーネルは，CPU が提供するハードウェア的な保護メカニズムを利用して，ユー
+ザ空間で実行する各プロセスが，固有のメモリにしかアクセスできないように
+します．そのような保護を実現するには，ハードウェア的な特権を持つカーネ
+ルが必要です．ユーザプログラムにはそのような特権がありません．ユーザプ
+ログラムがシステムコールを発行すると，ハードウェアが特権レベルを昇格さ
+せ，あらかじめ設定しておいたカーネルの関数を実行します．
+
 
 \begin{figure}[t]
 \center
 \includegraphics[scale=0.5]{fig/os.pdf}
-\caption{A kernel and two user processes.}
+\caption{カーネルと 2 つのユーザプロセス}
 \label{fig:os}
 \end{figure}
 
-The collection of system calls that a kernel provides
-is the interface that user programs see.
-The xv6 kernel provides a subset of the services and system calls
-that Unix kernels traditionally offer.  
-Figure~\ref{fig:api} 
-lists all of xv6's system calls.
 
-The rest of this chapter outlines xv6's services---processes, memory,
-file descriptors, pipes, and a file system---and illustrates them with
-code snippets and discussions of how the \indextext{shell}, which is
-the primary user interface to traditional Unix-like systems, uses
-them. The shell's use of system calls illustrates how carefully they
-have been designed.
+カーネルが提供するシステムコールが，ユーザプログラムから見えるインタ
+フェースです．xv6 カーネルは Unix カーネルの伝統的なシステ
+ムコールの一部を提供します．図~\ref{fig:api} は xv6 の全てのシステムコー
+ルです．
 
-The shell is an ordinary program that reads commands from the user
-and executes them.
-The fact that the shell is a user program and not part of the kernel,
-illustrates the power of the system call interface: there is nothing
-special about the shell.
-It also means that the shell is easy to replace; as a result,
-modern Unix systems have a variety of
-shells to choose from, each with its own user interface
-and scripting features.
-The xv6 shell is a simple implementation of the essence of
-the Unix Bourne shell.  Its implementation can be found at 
-\lineref{user/sh.c:1}.
+この章の続きでは，xv6 の提供するサービスの概要を述べます．すなわち，プ
+ロセス，メモリ，ファイルディスクリプタ，パイプ，およびファイルシステム
+です．それらをコードと合わせて説明するとともに，Unix 的システムにおける
+重要なユーザインタフェースである\indextext{シェル}が，どのようにそれらを利用するか議
+論します．シェルがシステムコールを利用する様は，システムコールがいかに
+繊細に設計されたかをよく示しています．
+
+
+シェルはありふれたプログラムで，ユーザが入力したコマンドを読み込み，そ
+れを実行します．シェルがユーザプログラムであり，カーネルの一部ではない
+という事実は，システムコールインターフェースの力を示します．シェル
+は決して特別なプログラムでは無いのです．つまり，シェルは簡単に取
+替えることができます．現代的な Unix システムでは，
+さまざまなシェルを選ぶことができて，それらは独自のユーザインタフェースとス
+クリプティング機能を持っています．xv6 シェルは Unix Bourne シェル
+のエッセンスのみを取り出した単純な実装です．実装は
+\lineref{user/sh.c:1} にあります．
+
 %% 
 %% 	Processes and memory
 %% 
-\section{Processes and memory}
+\section{プロセスとメモリ}
 
-An xv6 process consists of user-space memory (instructions, data, and stack)
-and per-process state private to the kernel.
-Xv6 can
-\indextext{time-share} 
-processes: it transparently switches the available CPUs
-among the set of processes waiting to execute.
-When a process is not executing, xv6 saves its CPU registers,
-restoring them when it next runs the process.
-The kernel associates a process identifier, or
-\indexcode{pid},
-with each process.
+xv6 のプロセスは，ユーザ空間のメモリ（命令列，データ，およびスタック）
+と，カーネルだけが見ることができるプロセス固有の状態を持ちます．xv6 は
+プロセス間で\indextext{タイムシェア} (\indextext{Time share}) を行います．すなわち，実行待ちを
+しているプロセスを，利用可能な（複数の）CPU に対して透過的に切り替えま
+す．プロセスが実行状態でないとき，xv6 は CPU レジスタを退避しておき，
+実行するときに復元します．カーネルは各プロセスに対し，プロセス ID （ある
+いは \indexcode{pid}）を割り当てます．
+
 
 \begin{figure}[t]
 \center
+{\footnotesize
 \begin{tabular}{ll}
-{\bf System call} & {\bf Description} \\
+{\bf システムコール} & {\bf 説明} \\
 \midrule
-fork() & Create a process \\
-exit(xstatus) & Terminate the current process with xstatus indicating success of failure \\
-wait(*xstatus) & Wait for a child process to exit and copy the child's exit status to xstatus \\
-kill(pid) & Terminate process pid \\
-getpid() & Return the current process's pid \\
-sleep(n) & Sleep for n clock ticks \\
-exec(filename, *argv) & Load a file and execute it \\
-sbrk(n) & Grow process's memory by n bytes \\
-open(filename, flags) & Open a file; the flags indicate read/write \\
-read(fd, buf, n) & Read n bytes from an open file into buf \\
-write(fd, buf, n) & Write n bytes to an open file \\
-close(fd) & Release open file fd \\
-dup(fd) & Duplicate fd \\
-pipe(p) & Create a pipe and return fd's in p \\
-chdir(dirname) & Change the current directory \\
-mkdir(dirname) & Create a new directory \\
-mknod(name, major, minor) & Create a device file \\
-fstat(fd) & Return info about an open file \\
-link(f1, f2) & Create another name (f2) for the file f1 \\
-unlink(filename) & Remove a file \\
+\texttt{fork()} & プロセスを作る．\\
+\texttt{exit(xstatus)} & 現在のプロセスを終了．\texttt{xstatus} で成否を示す．\\
+\texttt{wait(*xstatus)} & 子プロセスの終了を待ち，終了コードを \texttt{xstatus} にコピーする．\\
+\texttt{kill(pid)} & \texttt{pid} 番のプロセスを終了する．\\
+\texttt{getpid()} & 現在のプロセスのプロセスID (PID) をリターンする．\\
+\texttt{sleep(n)} & \texttt{n} クロック刻みのあいだスリープする．\\
+\texttt{exec(filename, *argv)} & ファイルをロードして実行する．\\
+\texttt{sbrk(n)} & プロセスのメモリを \texttt{n} バイト増やす．\\
+\texttt{open(filename, flags)} & ファイルを開く．\texttt{flags} は読み書きを示す．\\
+\texttt{read(fd, buf, n)} & 開いているファイルから \texttt{n} バイト読み，\texttt{buf} に入れる．\\
+\texttt{write(fd, buf, n)} & 開いているファイルに \texttt{n} バイト書き込む．\\
+\texttt{close(fd)} & 開いているファイルを表す \texttt{fd} を解放する．\\
+\texttt{dup(fd)} & \texttt{fd} を複製する．\\
+\texttt{pipe(p)} & パイプを作り，そのファイルディスクリプタ (fd) を \texttt{p} に入れる．\\
+\texttt{chdir(dirname)} & カレントディレクトリを変更する．\\
+\texttt{mkdir(dirname)} & 新しいディレクトリを作る．\\
+\texttt{mknod(name, major, minor)} & デバイスファイルを作る．\\
+\texttt{fstat(fd)} & 開いているファイルに関する情報をリターンする．\\
+\texttt{link(f1, f2) } & ファイル \texttt{f1} の別の名前 (\texttt{f2}) を作る．\\
+\texttt{unlink(filename)} & ファイルを消去する．
 \end{tabular}
-\caption{Xv6 system calls}
+}
+\caption{xv6 のシステムコール}
 \label{fig:api}
 \end{figure}
 
-A process may create a new process using the
-\indexcode{fork}
-system call.
-\lstinline{Fork}
-creates a new process, called the 
-\indextext{child process}, 
-with exactly the same memory contents
-as the calling process, called the 
-\indextext{parent process}.
-\lstinline{Fork}
-returns in both the parent and the child.
-In the parent,
-\indexcode{fork}
-returns the child's pid;
-in the child, it returns zero.
-For example, consider the following program fragment written in the C
-programming language~\cite{kernighan}:
+プロセスは，\indexcode{fork} システムコールを利用することで，新しいプロセ
+スを生むことができます．\indexcode{fork} は呼び出し元（\indextext{親プロセス}と呼びま
+す）とまったく同一のメモリを持つ新しいプロセス（\indextext{子プロセス}と呼びます）
+を作ります．\lstinline{fork} は，親プロセスと子プロセスの両方にリターンし
+ます．親プロセスにおいて，\indexcode{fork} の返値は子プロセス
+の \indexcode{pid} です．一方，子プロセスにおける \indexcode{fork} の
+返値は 0 です．たとえば，C言語で書かれた次のプログラムを考えてみましょう~\cite{kernighan}:
+%
 \begin{lstlisting}[]
 int pid = fork();
 if(pid > 0){
@@ -180,72 +154,45 @@ if(pid > 0){
   printf("fork error\en");
 }
 \end{lstlisting}
-The
-\indexcode{exit}
-system call causes the calling process to stop executing and
-to release resources such as memory and open files.
-Exit takes an integer status argument,
-conventionally 0 to indicate success and 1 to indicate failure.
-The
-\indexcode{wait}
-system call returns the pid of an exited child of the
-current process and copies the exit status of the child to the address
-passed to wait; if none of the caller's children
-has exited,
-\indexcode{wait}
-waits for one to do so.
-If the parent doesn't care about the exit status of a child, it can
-pass a 0 address to
-\lstinline{wait}.
+\indexcode{exit} システムコールは呼んだプロセスの実行を中止し，メモリや開
+いているファイルなどのリソースを解放します．\indexcode{exit} は整数のステー
+タス引数を取ります．慣習的に，0が成功, 1が失敗を表しま
+す．\indexcode{wait} システムコールは，終了した子プロセスの \indexcode{pid}
+をリターンするとともに，子プロセスの終了ステータスを，\indexcode{wait} に
+渡されたアドレスへコピーします．もし，どの子プロセスも終了
+しない場合，\indexcode{wait} はどれかが終了するまで待ちます．もし，親プロ
+セスが子プロセスの終了コードに興味がない場合は，引数に 0 を渡します．
 
-In the example, the output lines
+
+上記の例において，
 \begin{lstlisting}[]
 parent: child=1234
 child: exiting
 \end{lstlisting}
-might come out in either order, depending on whether the
-parent or child gets to its
-\indexcode{printf}
-call first.
-After the child exits the parent's
-\indexcode{wait}
-returns, causing the parent to print
+のような出力が順不同で現れます．親プロセスと子プロセスのどちらが先
+に \indexcode{printf} を呼んだかによって順序が決まります．子プロセスが終了
+したあと，親プロセスの \indexcode{wait} はリターンし，その結果親プロセスは次
+を出力します:
 \begin{lstlisting}[]
 parent: child 1234 is done
 \end{lstlisting}
-Although the child has the same memory contents as the parent initially, the
-parent and child are executing with different memory and different registers:
-changing a variable in one does not affect the other. For example, when the
-return value of
-\lstinline{wait}
-is stored into
-\lstinline{pid} 
-in the parent process,
-it doesn't change the variable 
-\lstinline{pid}
-in the child.  The value of
-\lstinline{pid}
-in the child will still be zero.
+初期状態の子プロセスは，親プロセスとメモリ内容は同じですが，
+別のメモリとレジスタを使って実行を行います．すなわち，一方で
+加えた変更は，もう一方には伝わりません．たとえば，親プロセスにおいて
+\indexcode{wait} の返値が \indexcode{pid} 変数に代入されたとしても，
+それは子プロセスの \indexcode{pid} 変数は変更しません．子プロセスの
+\indexcode{pid} 変数は変わらず 0 を保持します．
 
-The
-\indexcode{exec}
-system call
-replaces the calling process's memory with a new memory
-image loaded from a file stored in the file system.
-The file must have a particular format, which specifies which part of
-the file holds instructions, which part is data, at which instruction
-to start, etc. xv6
-uses the ELF format, which Chapter~\ref{CH:MEM} discusses in
-more detail.
-When
-\indexcode{exec}
-succeeds, it does not return to the calling program;
-instead, the instructions loaded from the file start
-executing at the entry point declared in the ELF header.
-\lstinline{Exec}
-takes two arguments: the name of the file containing the
-executable and an array of string arguments.
-For example:
+\indexcode{exec} システムコールは，呼び出し元プロセスのメモリを，ファイル
+システムから読み出したファイルをロードしたメモリイメージに取り替え
+ます．そのファイルは，ファイルのどの部分が命令列か，どの部分がデータか，
+またどの命令列から実行を開始するか，などの情報を持つ特定のフォーマットに従っ
+ている必要があります．xv6 が利用する ELF フォーマットについて
+は \ref{CH:MEM}~章で詳しく説明します．成功した \indexcode{exec} は，呼び出し元プログ
+ラムにはリターンしません．そのかわり，そのファイルから読み出された命令
+列の中で，ELF ヘッダにおいてエントリポイントと指定された命令にリター
+ンします．\indexcode{exec} は2つの引数を取ります．実行可能ファイルのファイ
+ル名と，文字列引数の配列です．以下が例です．
 \begin{lstlisting}[]
 char *argv[3];
 
@@ -255,177 +202,96 @@ argv[2] = 0;
 exec("/bin/echo", argv);
 printf("exec error\en");
 \end{lstlisting}
-This fragment replaces the calling program with an instance
-of the program 
-\lstinline{/bin/echo}
-running with the argument list
-\lstinline{echo}
-\lstinline{hello}.
-Most programs ignore the first argument, which is 
-conventionally the name of the program.
+このコード片は，呼び出し元プログラムを，\lstinline{echo hello} という引数
+で実行する\lstinline{/bin/echo} というプログラムに取り替えます．最初の引数
+には慣習上プログラム名を指定しますが，多くのプログラムはこれを無視しま
+す．
 
-The xv6 shell uses the above calls to run programs on behalf of
-users. The main structure of the shell is simple; see
-\lstinline{main} 
-\lineref{user/sh.c:/main/}.
-The main loop reads a line of input from the user with
-\indexcode{getcmd}.
-Then it calls 
-\lstinline{fork}, 
-which creates a copy of the shell process. The
-parent calls
-\lstinline{wait},
-while the child runs the command.  For example, if the user
-had typed
+xv6 のシェルは，上記のシステムコールを使うことで，ユーザにかわってプロ
+グラムを実行します．\lineref{user/sh.c:/main/} の \lstinline{main} から分かるように，
+シェルの主構造は単純です．メインループは \indexcode{getcmd} を用いて，ユー
+ザ入力を 1 行読み込みます．そのあと，シェルは \lstinline{fork} を呼んでシェ
+ルプロセスのコピーを作ります．子プロセスがコマンドを実行する間，親プロ
+セスは \lstinline{wait} を呼びます．たとえば，ユーザが入力したコマンド
+が 
 ``\lstinline{echo hello}''
-to the shell,
-\lstinline{runcmd}
-would have been called with
+であった場合，\lstinline{runcmd} は 
 ``\lstinline{echo hello}''
-as the argument.
-\lstinline{runcmd} 
-\lineref{user/sh.c:/runcmd/}
-runs the actual command. For
-``\lstinline{echo hello}'',
-it would call
-\lstinline{exec} 
-\lineref{user/sh.c:/exec.ecmd/}.
-If
-\lstinline{exec}
-succeeds then the child will execute instructions from
-\lstinline{echo}
-instead of
-\lstinline{runcmd}.  
-At some point
-\lstinline{echo}
-will call
-\lstinline{exit},
-which will cause the parent to return from
-\lstinline{wait}
-in 
-\lstinline{main}
-\lineref{user/sh.c:/main/}.
+を引数として呼び出されます．実際にコマンドを実行するの
+は \lstinline{runcmd} \lineref{user/sh.c:/runcmd/} です．
+``\lstinline{echo hello}''
+コマンドに対して
+は，\lstinline{exec} を呼び出します \lineref{user/sh.c:/exec.ecmd/}．ある時点
+で \lstinline{echo} は \lstinline{exit} を呼び，それによって親プロセス
+は\lstinline{wait} から \lstinline{main} にリターンします \lineref{user/sh.c:/main/}．
 
-You might wonder why
-\indexcode{fork}
-and
-\indexcode{exec}
-are not combined in a single call; we will see later that separate
-calls for creating a process and loading a program has some clever
-usages in the shell for I/O redirection.  To avoid the wastefulness of
-creating a duplicate process and then immediately replacing it,
-operating kernels optimize the implementation of
-\lstinline{fork}
-for this use case by using virtual memory techniques such as copy-on-write.
 
-Xv6 allocates most user-space memory
-implicitly:
-\indexcode{fork}
-allocates the memory required for the child's copy of the
-parent's memory, and 
-\indexcode{exec}
-allocates enough memory to hold the executable file.
-A process that needs more memory at run-time (perhaps for
-\indexcode{malloc})
-can call
-\lstinline{sbrk(n)}
-to grow its data memory by
-\lstinline{n}
-bytes;
-\indexcode{sbrk}
-returns the location of the new memory.
+なぜ \indexcode{fork} と \indexcode{exec} を合わせて 1 つのシステムコールにしない
+のか疑問に思うかもしれません．のちほど，プロセス生成とプログラムの
+ロードを分けて呼ぶことが，シェルの I/O リダイレクションで
+賢く使われている例を見ます．上記の \lstinline{fork} の利用例において，重
+複したプロセスを作る無駄を避けるために，カーネルはコピーオンライト (copy-on-write) などの
+仮想メモリのテクニックを用いて \lstinline{fork} の実装を最適化しています．
 
-Xv6 does not provide a notion of users or of protecting
-one user from another; in Unix terms, all xv6 processes
-run as root.
+xv6 は，ユーザ空間のメモリを暗黙のうちにアロケート (allocate) しま
+す．\indexcode{fork} は子プロセスが親プロセスのメモリのコピーを得るのに必
+要なメモリをアロケートし，\indexcode{exec} は実行可能ファイルを保持するの
+に必要なメモリをアロケートします．実行時に（多くの場
+合 \indexcode{malloc}によって）さらにメモリが必要になったプロセス
+は \lstinline{sbrk(n)} を呼ぶことで，データメモリを \lstinline{n} バイト増加させること
+ができます．\indexcode{sbrk} は新しいメモリの場所をリターンしま
+す．
+
+xv6 は，ユーザや，あるユーザから別のユーザの保護といった概念を提供しません．
+Unix の言葉で言えば，xv6 の全てのプロセスは root として実行します．
+
 %% 
 %% 	I/O and File descriptors
 %% 
-\section{I/O and File descriptors}
+\section{I/O とファイルディスクリプタ}
 
-A 
-\indextext{file descriptor} 
-is a small integer representing a kernel-managed object
-that a process may read from or write to.
-A process may obtain a file descriptor by opening a file, directory,
-or device, or by creating a pipe, or by duplicating an existing
-descriptor.
-For simplicity we'll often refer to the object a file descriptor
-refers to as a ``file'';
-the file descriptor interface abstracts away the differences between
-files, pipes, and devices, making them all look like streams of bytes.
+\indextext{ファイルディスクリプタは}，カーネルが管理するオブジェクトで，プロセスが
+読み書きするものを表す小さい整数です．プロセスがファイルディスクリプタ
+を得るのは，ファイル，ディレクトリ，あるいはデバイスを開いたときや，ある
+いはパイプを作ったり，既存のディスクリプタをコピーしたときです．簡単の
+ため，ファイルディスクリプタが指し示すオブジェクトを，単に「ファイル」と呼
+びます．ファイルディスクリプタインタフェースは，ファイルや，パイプや，デ
+バイスなどの差異を抽象化して，どれもバイトのストリームのように見せます．
 
-Internally, the xv6 kernel uses the file descriptor
-as an index into a per-process table,
-so that every process has a private space of file descriptors
-starting at zero.
-By convention, a process reads from file descriptor 0 (standard input),
-writes output to file descriptor 1 (standard output), and
-writes error messages to file descriptor 2 (standard error).
-As we will see, the shell exploits the convention to implement I/O redirection
-and pipelines. The shell ensures that it always has three file descriptors
-open
-\lineref{user/sh.c:/open..console/},
-which are by default file descriptors for the console.
 
-The
-\lstinline{read}
-and
-\lstinline{write}
-system calls read bytes from and write bytes to
-open files named by file descriptors.
-The call
-\lstinline{read(fd},
-\lstinline{buf},
-\lstinline{n)}
-reads at most
-\lstinline{n}
-bytes from the file descriptor
-\lstinline{fd},
-copies them into
-\lstinline{buf},
-and returns the number of bytes read.
-Each file descriptor that refers to a file
-has an offset associated with it.
-\lstinline{Read}
-reads data from the current file offset and then advances
-that offset by the number of bytes read:
-a subsequent
-\lstinline{read}
-will return the bytes following the ones returned by the first
-\lstinline{read}.
-When there are no more bytes to read,
-\lstinline{read}
-returns zero to indicate the end of the file.
+xv6 カーネルは内部的に，プロセス固有のテーブルのインデックスとしてファ
+イルディスクリプタを利用します．どのプロセスも，そのプロセスに固有な 0
+から始まるファイルディスクリプタを持っています．慣習上，プロセスは0番ファ
+イルディスクリプタ（標準入力）から読み込み，1番ファイルディスクリプタ
+（標準出力）に書き込み，2番ファイルディスクリプタ（標準エラー出
+力）にエラーメッセージを書き込みます．のちほど見るように，シェルはこの
+慣習を利用して I/O リダイレクションとパイプラインを実装します．シェルは，
+全てのプロセスがこれら3つのファイルディスクリプタが開いていることを
+保証します \lineref{user/sh.c:/open..console/}．これらは，デフォルトではコンソールのファイル
+ディスクリプタです．
 
-The call
-\lstinline{write(fd},
-\lstinline{buf},
-\lstinline{n)}
-writes
-\lstinline{n}
-bytes from
-\lstinline{buf}
-to the file descriptor
-\lstinline{fd}
-and returns the number of bytes written.
-Fewer than
-\lstinline{n}
-bytes are written only when an error occurs.
-Like
-\lstinline{read},
-\lstinline{write}
-writes data at the current file offset and then advances
-that offset by the number of bytes written:
-each
-\lstinline{write}
-picks up where the previous one left off.
 
-The following program fragment (which forms the essence of the program
-\lstinline{cat})
-copies data from its standard input
-to its standard output.  If an error occurs, it writes a message
-to the standard error.
+\lstinline{read} と \lstinline{write} システムコールは，ファイルディスクリプ
+タが指すファイルに対し，バイト列を読み出したり書き込んだりしま
+す．\lstinline{read(fd, buf, n)} は，ファイルディスクリプタ \lstinline{fd} か
+ら最大で \lstinline{n} バイトを読み出し，それを \lstinline{buf} にコピーした
+上で，読みだしたバイト数をリターンします．ファイルに関連づいたファイル
+ディスクリプタにはオフセットがあります．\lstinline{read} は，現
+在のオフセットを起点に読み込みを行い，読んだ分だけオフセットを増加させ
+ます．そのあとに呼び出される \lstinline{read} は，先の \lstinline{read} が読ん
+だものに続くバイト列を返します．もしそれ以上読み込むバイトが無いとき，
+\lstinline{read} は 0 をリターンして，ファイルの終端であることを示します．
+
+\lstinline{write(fd, buf, n)} は，\lstinline{buf} からファイルディ
+スクリプタ \lstinline{fd}に \lstinline{n} バイトを書き込み，書き込んだバイト
+数をリターンします．返値が \lstinline{n} より少なくなるのはエラーのときだけ
+です．\lstinline{read} と同様に，\lstinline{write} はそのファイルの現在のオフ
+セットに書き込みを行い，書き込んだバイト数分オフセットを進めま
+す．続く \lstinline{write} は，以前の \lstinline{write} が終えた場所から始めま
+す．
+
+次のコード片は \lstinline{cat} の本質的な部分であり，標準入力のデータを標準出力
+にコピーします．もしエラーが生じたら，それを標準エラー出力へ書き込みます．
 \begin{lstlisting}[]
 char buf[512];
 int n;
@@ -444,48 +310,32 @@ for(;;){
   }
 }
 \end{lstlisting}
-The important thing to note in the code fragment is that
-\lstinline{cat}
-doesn't know whether it is reading from a file, console, or a pipe.
-Similarly 
-\lstinline{cat}
-doesn't know whether it is printing to a console, a file, or whatever.
-The use of file descriptors and the convention that file descriptor 0
-is input and file descriptor 1 is output allows a simple
-implementation
-of 
-\lstinline{cat}.
+ここで重要なのは，このコード片において，読み込み元がファイル，コンソール，およびパ
+イプなどのいずれであるか，\lstinline{cat} は関知しないということです．
+同様に，\lstinline{cat} は書き込んでいる先がコンソールなのか，ファイルなの
+か，あるいは何か別のものなのかにも関知しません．ファイルディスクリプタを使うことと，
+0番ファイルディスクリプタは入力・1番ファイルディスクリプタは出力であるという慣習が，
+\lstinline{cat} の実装を単純化しています．
 
-The
-\lstinline{close}
-system call
-releases a file descriptor, making it free for reuse by a future
-\lstinline{open},
-\lstinline{pipe},
-or
-\lstinline{dup}
-system call (see below).
-A newly allocated file descriptor 
-is always the lowest-numbered unused
-descriptor of the current process.
+\lstinline{close} システムコールはファイルディスクリプタを解放して，将来
+の \lstinline{open}, \lstinline{pipe}, あるいは \lstinline{dup} システムコール
+（後述します）が再利用できるようにします．新たにアロケートされたファイルディ
+スクリプタは常に，そのプロセスの未使用ファイルディスクリプタのうち，
+最小の値を取ります．
 
-File descriptors and
-\indexcode{fork}
-interact to make I/O redirection easy to implement.
-\lstinline{Fork}
-copies the parent's file descriptor table along with its memory,
-so that the child starts with exactly the same open files as the parent.
-The system call
-\indexcode{exec}
-replaces the calling process's memory but preserves its file table.
-This behavior allows the shell to
-implement I/O redirection by forking, reopening chosen file descriptors,
-and then execing the new program.
-Here is a simplified version of the code a shell runs for the
-command
-\lstinline{cat}
-\lstinline{<}
-\lstinline{input.txt}:
+
+ファイルディスクリプタと \indexcode{fork} を使うことで，I/O リダイレクショ
+ンを簡単に実装することができます．\lstinline{fork} は，メモリとともに，親
+プロセスのファイルディスクリプタテーブルをコピーします．そのため，子プ
+ロセスは親プロセスと全く同じファイルを開いた状態で開始しま
+す．\indexcode{exec} システムコールは，呼び出し元プロセスのメモリを取り替
+えますが，ファイルテーブルはそのままにしておきます．そのことを利用して，
+シェルは I/O リダイレクションを実現します: \lstinline{fork}
+を呼ぶ，選択したファイルディスクリプタを再度開く，新しいプログラム
+を \lstinline{exec} する．
+%
+以下は，\lstinline{cat < input.txt} に対してシェルが実行する
+コードを単純化したものです:
 \begin{lstlisting}[]
 char *argv[2];
 
@@ -497,53 +347,32 @@ if(fork() == 0) {
   exec("cat", argv);
 }
 \end{lstlisting}
-After the child closes file descriptor 0,
-\lstinline{open}
-is guaranteed to use that file descriptor
-for the newly opened
-\lstinline{input.txt}:
-0 will be the smallest available file descriptor.
-\lstinline{Cat}
-then executes with file descriptor 0 (standard input) referring to
-\lstinline{input.txt}.
+子プロセスはファイルディスクリプタ 0 番を閉じたあと，\lstinline{open} シス
+テムコールで \lstinline{input.txt} を開きます．それにより得るファイルディ
+スクリプタは 0 番です．0 が未使用ディスクリプタの中で最小だからで
+す．\lstinline{cat} はそのあと，\lstinline{input.txt} に関連づいたファイルディ
+スクリプタ 0 番を用いてプログラムを実行します．
 
-The code for I/O redirection in the xv6 shell works in exactly this way
-\lineref{user/sh.c:/case.REDIR/}.
-Recall that at this point in the code the shell has already forked the
-child shell and that 
-\lstinline{runcmd} 
-will call
-\lstinline{exec}
-to load the new program.  Now it should be clear why it is a good idea that
-\lstinline{fork}
-and 
-\lstinline{exec} 
-are separate calls.  Because if they are separate, the shell can fork a child,
-use
-\lstinline{open},
-\lstinline{close},
-\lstinline{dup}
-in the child to change the standard input and output
-file descriptors, and then
-\lstinline{exec}.
-No changes to the program being exec-ed
-(\lstinline{cat}
-in our example)
-are required.
-If
-\lstinline{fork}
-and
-\lstinline{exec}
-were combined into a single
-system call, some other (probably more complex) scheme would be required for the
-shell to redirect standard input and output, or the program itself would have to
-understand how to redirect I/O.
 
-Although
-\lstinline{fork}
-copies the file descriptor table, each underlying file offset is shared
-between parent and child.
-Consider this example:
+xv6 シェルにおける I/O リダイレクションは，まさにその方法で動いていま
+す \lineref{user/sh.c:/case.REDIR/}．この時点でシェルはすでに子プロセス
+を \lstinline{fork} しており，\lstinline{runcmd} がこれから \lstinline{exec} を
+読んで新しいプログラムをロードするのでした．ここ
+で，\lstinline{fork} と\lstinline{exec} を分けておくのが良いアイディアである
+ことが明らかになるはずです．それらが分かれていることにより，シェルは子
+プロセスを \lstinline{fork} したあと，子プロセスにおいて \lstinline{open},
+\lstinline{close}, および \lstinline{dup} を用いて標準入出力のファイルディス
+クリプタを変更し，そのあとに \lstinline{exec} を呼ぶことができるので
+す．\lstinline{exec} で呼ばれる側 (例では \lstinline{cat}) の変更は不要です．
+もし \lstinline{fork} と \lstinline{exec} が合わせて 1 つのシステムコールであっ
+たら，シェルが標準入出力をリダイレクトするのにそのほかの（たぶんもっと
+複雑な）方法を使うか，もしくは呼ばれるプログラム自身が I/O をどうやっ
+てリダイレクトするか理解する必要があります．
+
+
+\lstinline{fork} はファイルディスクリプタテーブルをコピーしますが，
+対応するファイルのオフセットは親プロセスと子プロセスで共有されています．
+次の例を考えてみます:
 \begin{lstlisting}[]
 if(fork() == 0) {
   write(1, "hello ", 6);
@@ -553,94 +382,67 @@ if(fork() == 0) {
   write(1, "world\en", 6);
 }
 \end{lstlisting}
-At the end of this fragment, the file attached to file descriptor 1
-will contain the data
-\lstinline{hello}
-\lstinline{world}.
-The
-\lstinline{write}
-in the parent
-(which, thanks to
-\lstinline{wait},
-runs only after the child is done)
-picks up where the child's
-\lstinline{write}
-left off.
-This behavior helps produce sequential output from sequences
-of shell commands, like
-\lstinline{(echo}
-\lstinline{hello};
-\lstinline{echo}
-\lstinline{world)}
-\lstinline{>output.txt}.
+このコード片の最後において，ファイルディスクリプタ 1 番に対応するファイルには，
+\lstinline{hello world} というデータが入っているはずです．親プロセスにおける
+\lstinline{write} (\lstinline{wait} のおかげで必ず子プロセスのあとに実行される)
+は，子プロセスの \lstinline{write} が終わった箇所から始めることができます．
+この挙動は，シェルコマンドの列から，出力を順番に取り出すのに役に立ちます．
+たとえば，\lstinline{(echo hello; echo world)>output.txt} です．
 
-The
-\lstinline{dup}
-system call duplicates an existing file descriptor,
-returning a new one that refers to the same underlying I/O object.
-Both file descriptors share an offset, just as the file descriptors
-duplicated by
-\lstinline{fork}
-do.
-This is another way to write
-\lstinline{hello}
-\lstinline{world}
-into a file:
+
+\lstinline{dup} システムコールは，既存のファイルディスクリプタを複製し，元と
+同じ I/O オブジェクトを参照する新しいファイルディスクリプタをリターンし
+ます．複製されたファイルディスクリプタは，元のディスクリプタとオフセッ
+トを共有します．\lstinline{fork} で複製された場合と同様です．
+以下は，\lstinline{hello world} をファイルに書き込む別の方法です．
 \begin{lstlisting}[]
 fd = dup(1);
 write(1, "hello ", 6);
 write(fd, "world\en", 6);
 \end{lstlisting}
 
-Two file descriptors share an offset if they were derived from
-the same original file descriptor by a sequence of
-\lstinline{fork}
-and
-\lstinline{dup}
-calls.
-Otherwise file descriptors do not share offsets, even if they
-resulted from 
-\lstinline{open}
-calls for the same file.  
-\lstinline{Dup} 
-allows shells to implement commands like this:
+
+\lstinline{fork} の後に \lstinline{dup} を呼ぶことで得た（同一のファイ
+ルディスクリプタから複製された）2 つのファイルディスクリプタはオフセッ
+トを共有します．それ以外の場合では，たとえ同一のファイル
+を \lstinline{open} して得たファイルディスクリプタであっても，オフセッ
+トを共有することはありません．
+
+\lstinline{dup} により，シェルは次のようなコマンドを
+実現できます．
 \lstinline{ls}
 \lstinline{existing-file}
 \lstinline{non-existing-file}
 \lstinline{>}
 \lstinline{tmp1}
 \lstinline{2>&1}.
-The
+ここで
 \lstinline{2>&1}
-tells the shell to give the command a file descriptor 2 that
-is a duplicate of descriptor 1.
-Both the name of the existing file and the error message for the
-non-existing file will show up in the file
-\lstinline{tmp1}.
-The xv6 shell doesn't support I/O redirection for the error file
-descriptor, but now you know how to implement it.
+は，ファイルディスクリプタ 2 番は 1 番の複製であると
+シェルに伝えます．存在するファイル名と
+存在しないファイルに対するエラーメッセージの両方が
+\lstinline{tmp1} に現れることになります．
+xv6 のシェルはエラーファイルディスクリプタの I/O リダイレクションは
+サポートしませんが，これでどうやって実装すればよいか分かったはずです．
+ファイルディスクリプタはつながっている先の詳細を隠してくれる
+強力な抽象化です．あるプロセスがファイルディスクリプタ 1 番に書き込みを
+行うとき，実際の書き込み先はファイル，コンソールなどのデバイス，
+およびパイプのいずれでもありえます．
 
-File descriptors are a powerful abstraction,
-because they hide the details of what they are connected to:
-a process writing to file descriptor 1 may be writing to a
-file, to a device like the console, or to a pipe.
 %% 
 %% 	Pipes
 %% 
-\section{Pipes}
+\section{パイプ}
 
-A 
-\indextext{pipe} 
-is a small kernel buffer exposed to processes as a pair of
-file descriptors, one for reading and one for writing.
-Writing data to one end of the pipe
-makes that data available for reading from the other end of the pipe.
-Pipes provide a way for processes to communicate.
+\indextext{パイプ}とはカーネルの小さいバッファで，プロセスに対しては一対のファイル
+ディスクリプタに見えます: 片方は読み出し，もう片方は書き込み
+用です．データをパイプの一方に書き込むと，そのデータはパイプのもう一方
+から読み出すことができるようになります．パイプを用いると，プロセス間で
+通信を行うことができます．
 
-The following example code runs the program
-\lstinline{wc}
-with standard input connected to
-the read end of a pipe.
+
+次のプログラムは，\lstinline{wc} プログラムを，パイプの読み出し側を
+標準入力に接続して実行します．
 \begin{lstlisting}[]
 int p[2];
 char *argv[2];
@@ -661,137 +463,77 @@ if(fork() == 0) {
   close(p[1]);
 }
 \end{lstlisting}
-The program calls
-\lstinline{pipe},
-which creates a new pipe and records the read and write
-file descriptors in the array
-\lstinline{p}.
-After
-\lstinline{fork},
-both parent and child have file descriptors referring to the pipe.
-The child dups the read end onto file descriptor 0,
-closes the file descriptors in
-\lstinline{p},
-and execs
-\lstinline{wc}.
-When 
-\lstinline{wc}
-reads from its standard input, it reads from the pipe.
-The parent closes the read side of the pipe,
-writes to the pipe,
-and then closes the write side.
+このプログラムは \lstinline{pipe} を呼んで新しいパイプを作り，読み書
+き用のファイルディスクリプタを配列 \lstinline{p} に記録しま
+す．\lstinline{fork} のあと，親プロセスと子プロセスはそのパイプに関連づいた
+ファイルディスクリプタを持ちます．子プロセスはパイプの読み出し側をファ
+イルディスクリプタ0番に \lstinline{dup} で複製し，\lstinline{p} のファイルディスク
+リプタを閉じ，そのあとで \lstinline{wc} を \lstinline{exec} しま
+す．\lstinline{wc} が標準入力から読み出しを行うと，パイプから読み込みが行
+われます．親プロセスはパイプの読み出し側を閉じ，パイプに対して書き込み
+を行い，そして最後にパイプの書き込み側を閉じます．
 
-If no data is available, a
-\lstinline{read}
-on a pipe waits for either data to be written or all
-file descriptors referring to the write end to be closed;
-in the latter case,
-\lstinline{read}
-will return 0, just as if the end of a data file had been reached.
-The fact that
-\lstinline{read}
-blocks until it is impossible for new data to arrive
-is one reason that it's important for the child to
-close the write end of the pipe
-before executing
-\lstinline{wc}
-above: if one of
-\lstinline{wc} 's
-file descriptors referred to the write end of the pipe,
-\lstinline{wc}
-would never see end-of-file.
 
-The xv6 shell implements pipelines such as
-\lstinline{grep fork sh.c | wc -l}
-in a manner similar to the above code
-\lineref{user/sh.c:/case.PIPE/}.
-The child process creates a pipe to connect the left end of the pipeline
-with the right end. Then it calls
-\lstinline{fork}
-and
-\lstinline{runcmd}
-for the left end of the pipeline
-and 
-\lstinline{fork}
-and
-\lstinline{runcmd}
-for the right end, and waits for both to finish.
-The right end of the pipeline may be a command that itself includes a
-pipe (e.g.,
-\lstinline{a}
-\lstinline{|}
-\lstinline{b}
-\lstinline{|}
-\lstinline{c)}, 
-which itself forks two new child processes (one for
-\lstinline{b}
-and one for
-\lstinline{c}).
-Thus, the shell may
-create a tree of processes.  The leaves of this tree are commands and
-the interior nodes are processes that wait until the left and right
-children complete.  In principle, you could have the interior nodes
-run the left end of a pipeline, but doing so correctly would complicate the
-implementation.
+もしデータが来ていない場合，パイプへの \lstinline{read} は新しいデータが到
+来するか，パイプの書き込み側のファイルディスクリプタが全て閉じられるま
+で待ちます．後者の場合，\lstinline{read} は，あたかもファイルの終端に達し
+たかのように 0 をリターンします．新データの到来がありえなくなるま
+で \lstinline{read} がブロックするすることは，子プロセスにおいてパイプの書き
+込み側を閉じなくてはいけない理由の 1 つです．もし \lstinline{wc} のファイ
+ルディスクリプタの 1 つがパイプの書き込み側を指していた場
+合，\lstinline{wc} は決してファイル終端にたどり着けません．
 
-Pipes may seem no more powerful than temporary files:
-the pipeline
+
+xv6 シェルは \lstinline{grep fork sh.c | wc -l} のようなパイプラインを，上
+記のコードのような方法で実装しています(user/sh.c:100)．子プロセスはパイ
+プラインの左側から右側までをつなぐためにパイプを作ります．そのあと，左側
+のコマンドのために \lstinline{fork} と \lstinline{runcmd} を呼び，そのあと，右
+側のコマンドのために \lstinline{fork} と \lstinline{runcmd} を呼びます．最後
+に，両方が終わるまで待ちます．パイプラインの右側は，さらにパイプを含む
+ことができます（たとえば \lstinline{a | b | c}）．それはさら
+に2つの新しい子プロセスに \lstinline{fork} します(すなわ
+ち \lstinline{b} と \lstinline{c}です)，そのようにして，シェルはプロセスのツ
+リーを作ることができます．ツリーの葉はコマンドで，内側のノードは左右の
+子プロセスの完了を待つためのプロセスとなります．原理的には，内側のノー
+ドにパイプラインの左側の処理を割り当てることも可能ですが，正しく
+実行しようとすると実装が複雑になってしまうでしょう．
+
+パイプをテンポラリファイルと比べた利点は分かりづらいかもしれません．
+次のパイプライン
 \begin{lstlisting}[]
 echo hello world | wc
 \end{lstlisting}
-could be implemented without pipes as
+は，パイプラインを使わずに次のようにしても実装できるからです．
 \begin{lstlisting}[]
 echo hello world >/tmp/xyz; wc </tmp/xyz
 \end{lstlisting}
-Pipes have at least four advantages over temporary files
-in this situation.
-First, pipes automatically clean themselves up;
-with the file redirection, a shell would have to
-be careful to remove
-\lstinline{/tmp/xyz}
-when done.
-Second, pipes can pass arbitrarily long streams of
-data, while file redirection requires enough free space
-on disk to store all the data.
-Third, pipes allow for parallel execution of pipeline stages,
-while the file approach requires the first program to finish
-before the second starts.
-Fourth, if you are implementing inter-process communication,
-pipes' blocking reads and writes are more efficient
-than the non-blocking semantics of files.
+この使い方において，パイプのテンポラリファイルに対する利点は少なくと
+も 4 つあります．第一に，パイプは自動で消えます．ファイルのリダイレクショ
+ンを使う場合，シェルは終了後に \lstinline{/tmp/xyz} を消すように気をつけな
+くてはいけません．第二に，パイプは任意に長いデータのストリームを渡す
+ことができます．それに対しリダイレクションでは，データ全体を保存す
+るための領域がディスクに必要です．第三に，パイプでは，
+パイプラインの各ステージを並列に実行させることができます．ファイルを使
+うアプローチでは，先のプログラムが完了したあとで無いと，次のプログ
+ラムを開始できません．第四に，プロセス間通信に利用する場合，パイプの
+ブロック付きの読み書きは，ファイルへのブロックなし読み書きよりもずっと
+効率的です．
+
 %% 
 %% 	File system
 %% 
-\section{File system}
+\section{ファイルシステム}
 
-The xv6 file system provides data files,
-which are uninterpreted byte arrays,
-and directories, which
-contain named references to data files and other directories.
-The directories form a tree, starting
-at a special directory called the 
-\indextext{root}.
-A 
-\indextext{path} 
-like
-\lstinline{/a/b/c}
-refers to the file or directory named
-\lstinline{c}
-inside the directory named
-\lstinline{b}
-inside the directory named
-\lstinline{a}
-in the root directory
-\lstinline{/}.
-Paths that don't begin with
-\lstinline{/}
-are evaluated relative to the calling process's
-\indextext{current directory},
-which can be changed with the
-\lstinline{chdir}
-system call.
-Both these code fragments open the same file
-(assuming all the directories involved exist):
+xv6 のファイルシステムは単なるバイト配列であるデータファイルと，ディレク
+トリを提供します．ディレクトリは，データファイル・ディレクトリの名
+前とその場所を提供します．ディレクトリはツリーを構成します．その起点は
+\indextext{ルート}と呼ばれる特別なディレクトリです．\lstinline{/a/b/c} のよう
+な\indextext{パス}は，\lstinline{c} という名のファイルまたはディレクトリ
+が，\lstinline{b} というディレクトリに入っていて，それは更に \lstinline{a} と
+いうルートディレクトリに入っているディレクトリに入っていることを意味し
+ます．\lstinline{/} から始まらないパスは，呼び出し元プロセスのカレントディ
+レクトリから相対的に評価されます．以下のコード片はいずれも同じファイル
+を開きます（関係するディレクトリは存在するものとします）:
 \begin{lstlisting}[]
 chdir("/a");
 chdir("b");
@@ -799,52 +541,32 @@ open("c", O_RDONLY);
 
 open("/a/b/c", O_RDONLY);
 \end{lstlisting}
-The first fragment changes the process's current directory to
-\lstinline{/a/b};
-the second neither refers to nor changes the process's current directory.
+1つ目コード片は，そのプロセスのディレクトリを \lstinline{/a/b} に移動します．
+それに対して2つ目のコード片は，カレントディレクトリを参照することも変更することも
+しません．
 
-There are multiple system calls to create a new file or directory:
-\lstinline{mkdir}
-creates a new directory,
-\lstinline{open}
-with the
-\lstinline{O_CREATE}
-flag creates a new data file,
-and
-\lstinline{mknod}
-creates a new device file.
-This example illustrates all three:
+
+新しいファイルやディレクトリを作るためのシステムコールはいくつもあります．
+\lstinline{mkdir} は新しいディレクトリを作ります．\lstinline{O_CREATE} フラグ付きで
+\lstinline{open} すると新しいファイルを作ります．\lstinline{mknod} は新しい
+デバイスファイルを作ります．以下は，それら3つ全ての例です:
 \begin{lstlisting}[]
 mkdir("/dir");
 fd = open("/dir/file", O_CREATE|O_WRONLY);
 close(fd);
 mknod("/console", 1, 1);
 \end{lstlisting}
-\lstinline{Mknod}
-creates a file in the file system,
-but the file has no contents.
-Instead, the file's metadata marks it as a device file
-and records the major and minor device numbers
-(the two arguments to 
-\lstinline{mknod}),
-which uniquely identify a kernel device.
-When a process later opens the file, the kernel
-diverts
-\lstinline{read}
-and
-\lstinline{write}
-system calls to the kernel device implementation
-instead of passing them to the file system.
+\lstinline{mknod} はファイルシステムにファイルを作成しますが，そのファイ
+ルには中身がありません．そのかわり，そのファイルのメタデータにデ
+バイスファイルであるマークがついており，メジャーおよびマイナーデバイス番号を
+記録しています（\lstinline{mknod} の 2 つの引数で指定します）．プロセスが
+そのファイルを開くと，カーネルは \lstinline{read} や \lstinline{write}
+をファイルシステムではなく，カーネル内のデバイスの実装に誘導します．
 
-\lstinline{Fstat}
-retrieves information about the object a file
-descriptor refers to.
-It fills in a
-\lstinline{struct}
-\lstinline{stat},
-defined in
-\lstinline{stat.h} \fileref{kernel/stat.h}
-as:
+
+\lstinline{fstat} は，ファイルディスクリプタが指し示すオブジェクトの情報を
+取得します．結果は，\lstinline{stat.h} \fileref{kernel/stat.h} で定義される
+\lstinline{stat} 構造体に入ります:
 \begin{lstlisting}[]
 #define T_DIR     1   // Directory
 #define T_FILE    2   // File
@@ -859,176 +581,115 @@ struct stat {
 };
 \end{lstlisting}
 
-A file's name is distinct from the file itself;
-the same underlying file, called an 
-\indextext{inode}, 
-can have multiple names,
-called 
-\indextext{links}.
-The
-\lstinline{link}
-system call creates another file system name 
-referring to the same inode as an existing file.
-This fragment creates a new file named both
-\lstinline{a}
-and
-\lstinline{b}.
+
+ファイル名はファイルそのものとは独立です．\indextext{inode} と呼ばれる
+ファイルの内部表現は複数の名前を持つことができ，それは\indextext{リンク}と呼ばれます．
+\lstinline{link} システムコールは，既存ファイルの inode を指し示す
+別のファイルを作成します．次のコード片は，\lstinline{a} と \lstinline{b} という
+2つの名前を持つ新しいファイルを作成します:
 \begin{lstlisting}[]
-open("a", O_CREATE|O_WRONLY);
+open("a", O_CREATE|O_WRONLY); 
 link("a", "b");
 \end{lstlisting}
-Reading from or writing to
-\lstinline{a}
-is the same as reading from or writing to
-\lstinline{b}.
-Each inode is identified by a unique
-\textit{inode}
-\textit{number}.
-After the code sequence above, it is possible
-to determine that
-\lstinline{a}
-and
-\lstinline{b}
-refer to the same underlying contents by inspecting the
-result of 
-\lstinline{fstat}:
-both will return the same inode number 
-(\lstinline{ino}),
-and the
-\lstinline{nlink}
-count will be set to 2.
+\lstinline{a} に読み書きすることは，\lstinline{b} に読み書きすることと等価です．
+各 inode は，固有の inode 番号で識別します．
+上記のコードを実行したあと，\lstinline{a} と \lstinline{b} が
+同じ内容を示すことは，\lstinline{fstat} で確認できます．
+両者は同じ inode 番号 (\lstinline{ino}) を持ち，また \lstinline{nlink} は
+2 になっているはずです．
 
-The
-\lstinline{unlink}
-system call removes a name from the file system.
-The file's inode and the disk space holding its content
-are only freed when the file's link count is zero and
-no file descriptors refer to it.
-Thus adding
+
+\lstinline{unlink} システムコールは，ファイルシステムから名前を削除します．
+そのファイルの inode およびファイル内容を記憶するディスク上の領域は，
+ファイルのリンク数が 0 になり，かつ参照しているファイルディスクリプタが
+無くなったときに限り解放されます．よって，先のコードに
 \begin{lstlisting}[]
 unlink("a");
 \end{lstlisting}
-to the last code sequence leaves the inode
-and file content accessible as
-\lstinline{b}.
-Furthermore,
+と付け足したとしても，ファイルの inode とその内容に
+は，\lstinline{b} としてアクセスできます．さらに，
 \begin{lstlisting}[]
-fd = open("/tmp/xyz", O_CREATE|O_RDWR);
+fd = open("/tmp/xyz", O_CREATE|O_RDWR); 
 unlink("/tmp/xyz");
 \end{lstlisting}
-is an idiomatic way to create a temporary inode 
-that will be cleaned up when the process closes 
-\lstinline{fd}
-or exits.
+とすることは，そのプロセスが \lstinline{fd} を閉じたり，あるいは終了したとき
+に消える一時ファイルを作成するときのイディオムです．
 
-Shell commands for file system operations are implemented
-as user-level programs such as
-\lstinline{mkdir},
-\lstinline{ln},
-\lstinline{rm},
-etc. This design allows anyone to extend the shell with new user commands by
-just adding a new user-level program.  In hindsight this plan seems obvious,
-but other systems designed at the time of Unix often built such commands into
-the shell (and built the shell into the kernel).
 
-One exception is
-\lstinline{cd},
-which is built into the shell
-\lineref{user/sh.c:/if.buf.0..==..c./}.
-\lstinline{cd}
-must change the current working directory of the
-shell itself.  If
-\lstinline{cd}
-were run as a regular command, then the shell would fork a child
-process, the child process would run
-\lstinline{cd},
-and
-\lstinline{cd}
-would change the 
-\textit{child} 's 
-working directory.  The parent's (i.e.,
-the shell's) working directory would not change.
+ファイルシステムの操作のためのシェルのコマンドは，\lstinline{mkdir},
+\lstinline{ln}, \lstinline{rm} などのユーザレベルプログラムとして実装されます．
+そのようにすることで，新しいユーザレベルプログラムを足すだけで，シェル
+を拡張して新しいユーザコマンドを追加できます．今となっては当たり前に見
+えるかもしれませんが，Unix が設計された時代，他のシステムはそのようなコ
+マンドをシェルに内蔵していました（そして，シェルをカーネルに内蔵してい
+ました）．
+
+ひとつの例外は \lstinline{cd} で，それはシェルに内蔵されていま
+す \lineref{user/sh.c:/if.buf.0..==..c./}．\lstinline{cd} はシェル自体のカレントディレクトリを変更
+しなくてはいけません．もし \lstinline{cd} が通常コマンドとして実行されると，
+シェルは子プロセスを生成し，その子プロセスが \lstinline{cd} を実行すること
+になります．そうすると，\textit{子プロセス}の作業ディレクトリは変化しますが，親
+プロセスの（すなわちシェルの）作業ディレクトリは変化しません．
+
 %% 
 %% 	Real world
 %% 
-\section{Real world}
+\section{世の中のオペレーティングシステム}
 
-Unix's combination of ``standard'' file
-descriptors, pipes, and convenient shell syntax for
-operations on them was a major advance in writing
-general-purpose reusable programs.
-The idea sparked a whole culture of ``software tools'' that was
-responsible for much of Unix's power and popularity,
-and the shell was the first so-called ``scripting language.''
-The Unix system call interface persists today in systems like
-BSD, Linux, and Mac OS X.
+Unix において，「標準」のファイルディスクリプタ，パイプ，およびそれらを
+使うための便利なシェルの構文が組み合わさることが，再利用性の高い
+汎用プログラムを書くことの大きな利点でした．このアイディアは，Unix のパ
+ワーと人気の源泉である「ソフトウェアツール」の文化に火をつけ，シェルは
+いわゆる最初のスクリプト言語となりました．Unix のシステムコールインター
+フェースは，今日においても，BSD, Linux, および Mac OS X などの
+システムで維持されています．
 
-The Unix system call interface has been standardized through the Portable
-Operating System Interface (POSIX) standard.
-Xv6 is
-\textit{not}
-POSIX compliant.  It misses system calls (including basic ones such as
-\lstinline{lseek}),
-it implements system calls only partially, as well as other differences.  Our main goals for xv6 are
-simplicity and clarity while providing a simple UNIX-like system-call interface.
-Several people have extended xv6 with a few more system calls and a simple
-C library in order to run basic Unix programs.  Modern kernels, however,
-provide many more system calls, and many more kinds of kernel services, than
-xv6.  For example, they support networking, windowing systems, user-level threads,
-drivers for many devices, and so on.  Modern kernels evolve continuously and
-rapidly, and offer many features beyond POSIX.
 
-For the most part, modern Unix-derived operating systems
-have not followed the early
-Unix model of exposing devices as special files, like the
-\lstinline{console}
-device file discussed above.
-The authors of Unix went on to build Plan 9,
-which applied the ``resources are files''
-concept to modern facilities,
-representing networks, graphics, and other resources
-as files or file trees.
+Unix のシステムコールインターフェースは，Portable Operating System
+Interface (POSIX) として標準化されました．xv6 は POSIX 準拠で
+は\textit{ありません}．xv6 には足りないシステムコールがあったり（ごく基
+本的な\lstinline{lseek}を含みます），部分的にしか実装されていないシステム
+コールがあるなどの違いがあるためです．Unix 風のシステムコールインター
+フェースを持ちますが，xv6 の主なゴールは単純さと明快さにあります．新し
+いシステムコールや，基本的な Unix プログラムを実行するための簡単な C ラ
+イブラリで xv6 を拡張する人もいます．しかしながら，現代的なカーネル
+は，xv6 と比べて圧倒的に多くのシステムコールやサービスを提供しています．
+たとえば，ネットワーク機能，ウィンドウシステム，ユーザレベルスレッド，
+多くのデバイスドライバなどを備えています．現代的なカーネルは，持続的か
+つ急速に発展しており，POSIX を超える多くの機能を提供します．
 
-The file system and file descriptors have been  powerful
-abstractions.
-Even so, there are other models for operating system interfaces.
-Multics, a predecessor of Unix,
-abstracted file storage in a way that made it look like memory,
-producing a very different flavor of interface.
-The complexity of the Multics design had a direct influence
-on the designers of Unix, who tried to build something simpler.
-% XXX can we cut this, since its point is the same as the next paragraph?
-% An operating system interface that went out of fashion
-% decades ago but has recently returned is the idea of a virtual machine monitor.
-% Such systems provide a superficially different interface from xv6,
-% but the basic concepts are still the same:
-% a virtual machine, like a process, consists of some memory and
-% one or more register sets;
-% the virtual machine has access to one large file called
-% a virtual disk instead of a file system;
-% virtual machines send messages to each other
-% and the outside world using virtual network devices
-% instead of pipes or files.
 
-This book examines how xv6 implements its Unix-like interface,
-but the ideas and concepts apply to more than just Unix.
-Any operating system must multiplex processes onto
-the underlying hardware, isolate processes from each
-other, and provide mechanisms for controlled
-inter-process communication.
-After studying xv6, you should be able to
-look at other, more complex operating systems
-and see the concepts underlying xv6 in those systems as well.
+Unix から派生した現代的なオペレーティングシステムの多く
+は，先に見た \lstinline{console} デバイスファイルのような，デバイスを特殊
+ファイルとして扱う古き Unix モデルを採用しませんでした．Unix の作者たち
+は Plan 9 に移り，「リソースはファイルである」というコンセプトを，より
+現代的な設備であるネットワークやグラフィクスなどの資源に適用しました．
+
+
+ファイルシステムとファイルディスクリプタは強力な抽象化でしたが，オペレー
+ティングシステムには別のインターフェースもありえました．Unix の先祖であ
+る Multics は，ファイルストレージをメモリのように抽象化することで，全く
+異なるインタフェースを作り上げました．Multics の設計の複雑さは，Unix
+の設計者たちに直接的に影響を与え，シンプルを求める原動力となりました．
+
+
+この本は，xv6 がどのようにして Unix 風のインタフェースを実装するかを説
+明しますが，そのアイディアとコンセプトは Unix に限らず適用できるもので
+す．オペレーティングシステムであれば，どのようなものであっても，プロセ
+スをハードウェアに対して切り替えたり，プロセス同士を分離したり，プロセ
+ス間通信のためのメカニズムを提供したりします．xv6 を学んだあとに
+より複雑なオペレーティングシステムを見れば，
+xv6 と同様のコンセプトを見つけるはずです．
 
 %% 
-\section{Exercises}
+\section{練習問題}
 %%
 
 \begin{enumerate}
 
-\item Write a program that uses UNIX system calls to
-``ping-pong'' a byte between two processes over a pair
-of pipes, one for each direction. Measure the
-program's performance, in exchanges per second.
+\item 2つのプロセスを（各方向からなる）1 組のパイプで接続し，ある 1 バ
+  イトのデータをプロセス間で卓球のように行き来させるプログラムを，Unix
+  システムコールを用いて書いてください．また，1 秒あたりの行き来の回数を
+  性能評価してください．
 
 \end{enumerate}

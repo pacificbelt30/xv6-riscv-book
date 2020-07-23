@@ -1,4 +1,4 @@
-\chapter{File system}
+\chapter{ファイルシステム}
 \label{CH:FS}
 %         is it process or kernel thread?
 % 
@@ -12,427 +12,329 @@
 % 
 % 	Mount
 
-The purpose of a file system is to organize and store data. File systems
-typically support sharing of data among users and applications, as well as
-\indextext{persistence}
-so that data is still available after a reboot.
+ファイルシステムはデータを整理して保存するためにあります．ファイルシ
+ステムは通常，ユーザやアプリケーション間のデータの共有や，再起動後にも
+データを使うための\indextext{永続性}を提供します．
 
-The xv6 file system provides Unix-like files, directories, and pathnames
-(see Chapter~\ref{CH:UNIX}), and stores its data on a virtio disk for
-persistence (see Chapter~\ref{CH:TRAP}). The file system addresses
-several challenges:
+xv6 のファイルシステムは，Unix 風のファイル，ディレクトリ，パス名（\ref{CH:UNIX}~章
+を見てください），\texttt{virtio} ディスクへの永続的な保存（\ref{CH:TRAP}~章をみてく
+ださい）などを提供します．ファイルシステムは，いくつかの課題
+を解決する必要があります．
 \begin{itemize}
-  
-\item The file system needs on-disk data structures to represent the tree
-of named directories and files, to record the identities of the
-blocks that hold each file's content, and to record which areas
-of the disk are free.
-\item The file system must support
-\indextext{crash recovery}.
-That is, if a crash (e.g., power failure) occurs, the file system must
-still work correctly after a restart. The risk is that a crash might
-interrupt a sequence of updates and leave inconsistent on-disk data
-structures (e.g., a block that is both used in a file and marked free).
-\item Different processes may operate on the file system at the same time,
-so the file-system code must coordinate to maintain invariants.
-\item Accessing a disk is orders of magnitude slower than accessing
-memory, so the file system must maintain an in-memory cache of
-popular blocks.
+\item ファイルシステムは，ディスク上に名前付きディレクトリとファイルの
+  ツリーを表現するためのデータ構造を必要とします．それを用いて，どのブ
+  ロックがどのファイルの中身を保持するかや，ディスクのどの領域が空いてい
+  るかを記録します．
 
+\item ファイルシステムはクラッシュリカバリをサポートしなくてはいけませ
+  ん．すなわち，クラッシュ（たとえば電源不良）が起きたとしても，ファイ
+  ルシステムは再起動後に正しく動かなくてはいけません．危険なのは，クラッ
+  シュが更新の列に割り込むことで，ディスク上のデータ構造から一貫性が失
+  われることです（例：あるブロックがあるファイルで使われているのに，未
+  使用のマークがついてしまう）．
+
+\item 複数のプロセスが，同時にファイルシステムの操作をすることがありえ
+  ます．そのため，ファイルシステムのコードが調整をして，不変量を管理し
+  なくてはいけません．
+
+\item ディスクへのアクセスは，メモリへのアクセスと比べてケタ違いに低速
+  です．そのため，ファイルシステムはよく使われるブロックのキャッシュを
+  メモリ上に作り，管理する必要があります．
 \end{itemize}
 
-The rest of this chapter explains how xv6 addresses these challenges.
+この章の残りは，xv6 がどのように上記の課題を解決するかを説明します．
+
 %% 
 %%  -------------------------------------------
 %% 
-\section{Overview}
+\section{概要}
 
-The xv6 file system implementation is
-organized in seven layers, shown in 
-Figure~\ref{fig:fslayer}.
-The disk layer reads and writes blocks on an virtio hard drive.
-The buffer cache layer caches disk blocks and synchronizes access to them,
-making sure that only one kernel process at a time can modify the
-data stored in any particular block.  The logging layer allows higher
-layers to wrap updates to several blocks in a
-\indextext{transaction},
-and ensures that the blocks are updated atomically in the
-face of crashes (i.e., all of them are updated or none).
-The inode layer provides individual files, each represented as an
-\indextext{inode}
-with a unique i-number
-and some blocks holding the file's data.  The directory
-layer implements each directory as a special kind of
-inode whose content is a sequence of directory entries, each of which contains a
-file's name and i-number.
-The pathname layer provides
-hierarchical path names like
-\lstinline{/usr/rtm/xv6/fs.c},
-and resolves them with recursive lookup.
-The file descriptor layer abstracts many Unix resources (e.g., pipes, devices,
-files, etc.) using the file system interface, simplifying the lives of
-application programmers.
+xv6 のファイルシステムの実装は，図~\ref{fig:fslayer} に示す 7 層に整理でき
+ます．ディスク層は，\texttt{virtio} ハードドライブ上のブロックの読み書
+きを行います．バッファキャッシュ層は，ディスク上のブロックをキャッシュ
+するとともに，そのアクセスを同期化して，ある特定のブロックに入ったデー
+タを変更できるのが 1 度に 1 プロセスだけになるようにします．ロギング層は，
+より上位の層のために，複数ブロックにまたがる更新を\indextext{トランザクション}にまとめま
+す．そうすることで，クラッシュしたとき，それらの更新がアトミック
+になる（すなわち，全て更新するかまったくしないかのどちらかになる）よう
+にします．inode 層はファイルを提供します．ファイルは，ユニーク
+な i-number を持つ \indextext{inode} と，そのファイルの情報を持つい
+くつかのブロックで表現されます．ディレクトリ層は，ディレクトリを提供し
+ます．ディレクトリとは特別な種類の inode のことで，その中身は
+ディレクトリエントリの列で，それぞれがそのファイルの名前と\texttt{i}番
+号を含んでいます．パス名層は，\texttt{/usr/rtm/xv6/fs.c} のような階層化
+されたパス名を提供し，パス名を解決するための再帰的な参照を行います．ファ
+イルディスクリプタ層は，たくさんの Unix 資源を，ファイルシステムのイン
+タフェースで抽象化します（例：パイプ，デバイス，ファイルなど）．そうす
+ることで，アプリケーションプログラマの仕事を単純化します．
+
 
 \begin{figure}[t]
 \center
 \includegraphics[scale=0.5]{fig/fslayer.pdf}
-\caption{Layers of the xv6 file system.}
+\caption{xv6 ファイルシステムの層}
 \label{fig:fslayer}
 \end{figure}
 
-The file system must have a plan for where it stores inodes and
-content blocks on the disk.
-To do so, xv6 divides the disk into several
-sections, as shown in 
-Figure~\ref{fig:fslayout}.
-The file system does not use
-block 0 (it holds the boot sector).  Block 1 is called the 
-\indextext{superblock}; 
-it contains metadata about the file system (the file system size in blocks, the
-number of data blocks, the number of inodes, and the number of blocks in the
-log).  Blocks starting at 2 hold the log.  After the log are the inodes, with multiple inodes per block.  After
-those come bitmap blocks tracking which data blocks are in use.
-The remaining blocks are data blocks; each is either marked
-free in the bitmap block, or holds content for a file or directory.
-The superblock is filled in by a separate program, called
-\indexcode{mkfs},
-which builds an initial file system.
+ファイルシステムには，inode やファイルの中身を記録するブロック
+を，ディスク上のどこに記録するかという計画が必要です．そのために，xv6
+はディスクを，図~\ref{fig:fslayout} に示すように複数のセクションに分割します．ファイル
+システムは 0 番ブロックは使いません（そこには，ブートセクタが入っていま
+す）．1 番ブロックは\indextext{スーパーブロック}と呼ばれます．そこには，ファイルシ
+ステムに関するメタデータが入っています（ブロック数でのファイルサイズ，
+データブロックの個数，inode の個数，ログに入っているブロックの
+数）．2 番以降のブロックにはログが入ります．ログの後ろにあるの
+は inode で，1つのブロックに複数の inode が入っていま
+す．そのあとに来るのはビットマップブロックで，どのブロックが使用中かを
+追跡するのに使います．残りのブロックはデータブロックで，ビットマップブロックに
+おいて未使用とマークされているか，あるいはファイルやディレクトリの中身を
+保持しています．スーパーブロックは，\indexcode{mkfs} と呼ばれる独立した
+プログラムによって書き込まれます．それが，ファイルシステムを初期化します．
 
-The rest of this chapter discusses each layer, starting with the
-buffer cache.
-Look out for situations where well-chosen abstractions at lower layers
-ease the design of higher ones.
+この章の残りは，バッファキャッシュからはじめて，各層の説明をしていきます．
+低層でよく考えられた抽象化を選ぶことで，上層の設計が楽になるとうシチュエーションを
+見ることができます．
 %% 
 %%  -------------------------------------------
 %% 
-\section{Buffer cache layer}
+\section{バッファキャッシュ層}
 
-The buffer cache has two jobs: (1) synchronize access to disk blocks to ensure
-that only one copy of a block is in memory and that only one kernel thread at a time
-uses that copy; (2) cache popular blocks so that they don't need to be re-read from
-the slow disk. The code is in
-\lstinline{bio.c}.
+バッファキャッシュには 2 つのしごとがあります．(1) ディスクブロックへのアクセスを
+同期化することで，唯一のコピーのみがメモリに入り，1度に1つのカーネルスレッド
+だけがそのコピーを使うようにすること．(2) よく使われるブロックをキャッシュすることで，
+遅いディスクから何度も読まなくてよくすること．コードは \texttt{bio.c} です．
 
-The main interface exported by the buffer cache consists of
-\indexcode{bread}
-and
-\indexcode{bwrite};
-the former obtains a
-\indextext{buf}
-containing a copy of a block which can be read or modified in memory, and the
-latter writes a modified buffer to the appropriate block on the disk.
-A kernel thread must release a buffer by calling
-\indexcode{brelse}
-when it is done with it.
-The buffer cache uses a per-buffer sleep-lock to ensure
-that only one thread at a time uses each buffer
-(and thus each disk block);
-\lstinline{bread}
-returns a locked buffer, and
-\lstinline{brelse}
-releases the lock.
+バッファキャッシュが提供する主なインタフェース
+は \indexcode{bread} と \indexcode{bwrite} です．前者はあるブロックのコピーを
+メモリ上で読み書きできる \texttt{buf} を取得します．後者は，更新された
+バッファをディスク上の適切なブロックに書き戻します．カーネルスレッドは，
+使い終わったバッファを \indexcode{brelse} で解放しなくてはいけません．
+バッファキャッシュは，バッファごとのスリープロックを使うこと
+で，1 度に 1 つのスレッドだけが各バッファ（すなわち各ディスクブロック）
+を使えるようにします．\texttt{bread} はロックされたバッファをリターン
+し，\texttt{brelse} はロックを解放します．
 
-Let's return to the buffer cache.
-The buffer cache has a fixed number of buffers to hold disk blocks,
-which means that if the file system asks for a block that is not
-already in the cache, the buffer cache must recycle a buffer currently
-holding some other block. The buffer cache recycles the
-least recently used buffer for the new block. The assumption is that
-the least recently used buffer is the one least likely to be used
-again soon.
+バッファキャッシュの話にもどりましょう．バッファキャッシュは，ディス
+ク上のブロックをたくわえるバッファを，ある決まった数だけ持っています．
+それはつまり，ファイルシステムがまだキャッシュに入っていないブロックを
+要求したら，今は別のブロックのために使われている
+バッファを再利用しなくてはいけないことを意味します．バッファキャッシュは，
+新しいブロックのために，最近使用頻度が低かった(least recently used) バッ
+ファを再利用します．最近使用頻度が低かったバッファは，
+将来使われる可能性がもっとも低いだろうと考えるわけです．
 
 \begin{figure}[t]
 \center
 \includegraphics[scale=0.5]{fig/fslayout.pdf}
-\caption{Structure of the xv6 file system. }
+\caption{xv6 ファイルシステムの構造}
 \label{fig:fslayout}
 \end{figure}
 %% 
 %%  -------------------------------------------
 %% 
-\section{Code: Buffer cache}
+\section{Code: バッファキャッシュ}
 
-The buffer cache is a doubly-linked list of buffers.
-The function
-\indexcode{binit},
-called by
-\indexcode{main}
-\lineref{kernel/main.c:/binit/},
-initializes the list with the
-\indexcode{NBUF}
-buffers in the static array
-\lstinline{buf}
-\linerefs{kernel/bio.c:/Create.linked.list/,/^..}/}.
-All other access to the buffer cache refer to the linked list via
-\indexcode{bcache.head},
-not the
-\lstinline{buf}
-array.
+バッファキャッシュはバッファの 2 重リンクリストです．\texttt{main} 関
+数が呼ぶ \indexcode{binit} 関数が
+\lineref{kernel/main.c:/binit/}，静的配
+列 \texttt{buf}を使って，要素数 \texttt{NBUF} のリストを初期化します
+\linerefs{kernel/bio.c:/Create.linked.list/,/^..}/}．
+バッファキャッシュへのそれ以外のアクセスは，\texttt{buf} 配列ではなく，
+\indexcode{bcache.head} を介してリンクリストとして行います．
 
-A buffer has two state fields associated with it.
-The field
-\indexcode{valid}
-indicates that the buffer contains a copy of the block.
-The field \indexcode{disk}
-indicates that the buffer content has been handed to
-the disk, which may change the buffer (e.g., write
-data from the disk into \lstinline{data}).
+バッファには 2 つの状態フィールドが関連付けられていま
+す．\indexcode{valid} フィールドは，そのバッファがあるブロックのコピーを保
+持していることを表します．\indexcode{disk} フィールドは，バッファの中身が
+ディスクに受け渡されたことを表します．これは，バッファを変える可能性が
+あります（例：ディスクから読んだデータを \texttt{data} に書き込む）．
 
-\lstinline{Bread}
+\texttt{bread} 
 \lineref{kernel/bio.c:/^bread/}
-calls
-\indexcode{bget}
-to get a buffer for the given sector
-\lineref{kernel/bio.c:/b.=.bget/}.
-If the buffer needs to be read from disk,
-\lstinline{bread}
-calls
-\indexcode{virtio_disk_rw}
-to do that before returning the buffer.
+は \indexcode{bget} を呼んで，所望の
+セクタに対応するバッファを取得します
+\lineref{kernel/bio.c:/b.=.bget/}．もし，バッファ
+をディスクから読まなくてはいけない場合には，\texttt{bread} は バッファ
+を返す前に \indexcode{virtio_disk_rw} により読み込みを行います．
 
-\lstinline{Bget}
+\texttt{bget} 
 \lineref{kernel/bio.c:/^bget/}
-scans the buffer list for a buffer with the given device and sector numbers
-\linerefs{kernel/bio.c:/Is.the.block.already/,/^..}/}.
-If there is such a buffer,
-\indexcode{bget}
-acquires the sleep-lock for the buffer.
-\lstinline{Bget}
-then returns the locked buffer.
+はバッファリストをスキャンし，
+与えられたデバイスとセクタ番号を探します
+\linerefs{kernel/bio.c:/Is.the.block.already/,/^..}/}．
+もし見つかったら，\indexcode{bget} はそのバッファのスリープロックを取得します．
+\texttt{bget} は，そのあとでロック済みバッファを返します．
 
-If there is no cached buffer for the given sector,
-\indexcode{bget}
-must make one, possibly reusing a buffer that held
-a different sector.
-It scans the buffer list a second time, looking for a buffer
-that is not in use (\lstinline{b->refcnt = 0});
-any such buffer can be used.
-\lstinline{Bget}
-edits the buffer metadata to record the new device and sector number
-and acquires its sleep-lock.
-Note that the assignment
-\lstinline{b->valid = 0}
-ensures that
-\lstinline{bread}
-will read the block data from disk
-rather than incorrectly using the buffer's previous contents.
+与えられたセクタに対応するバッファが無かったら作る必要があります．そのた
+めには，別のセクタのために使われているバッファの再利用が必要かもしれませ
+ん．\indexcode{bget} はバッファリストを再度スキャンし，使われていないバッ
+ファ (\texttt{b->refcnt = 0}) を探します．そのようにして使えるバッファ
+が見つかったら，\texttt{bget} は新しいデバイスとセクタ番号を記録するために
+バッファのメタデータを変更し，そしてスリープロックを取得します．
+\texttt{b->valid = 0} と代入することで，\texttt{bread} は
+バッファの古い内容を使わずに，ディスクからそのブロックのデータを読み出します．
 
-It is important that there is at most one cached buffer per
-disk sector, to ensure that readers see writes, and because the
-file system uses locks on buffers for synchronization.
-\lstinline{Bget}
-ensures this invariant by holding the
-\lstinline{bache.lock}
-continuously from the first loop's check of whether the
-block is cached through the second loop's declaration that
-the block is now cached (by setting
-\lstinline{dev},
-\lstinline{blockno},
-and
-\lstinline{refcnt}).
-This causes the check for a block's presence and (if not
-present) the designation of a buffer to hold the block to
-be atomic.
+各ディスクのセクタごとに，キャッシュされたバッファは最大でも 1 個であるこ
+とが重要です．そうすることで，バッファを読む人が書き込みに気づくことが
+できます．また，ファイルシステムがバッファへのロックにより同期化を行っ
+ていることも理由の1つです．\texttt{bget} は，この不変量を保証するため，
+最初のループでブロックがキャッシュされているかどうか調べるところか
+ら，2つ目のループで（\texttt{dev}, \texttt{backno}, およ
+び \texttt{refcnt} をセットして）ブロックがキャッシュされたと宣言される
+まで，\texttt{bache.lock} を保持し続けます．そうすることで，ブロックが
+存在するか確認して，もし存在しないならばそのブロックが入るバッファを取
+得するという一連の処理がアトミックになります．
 
-It is safe for
-\lstinline{bget}
-to acquire the buffer's sleep-lock outside of the 
-\lstinline{bcache.lock}
-critical section,
-since the non-zero
-\lstinline{b->refcnt}
-prevents the buffer from being re-used for a different disk block.
-The sleep-lock protects reads
-and writes of the block's buffered content, while the
-\lstinline{bcache.lock}
-protects information about which blocks are cached.
+\texttt{bget} は，\texttt{bcache.lock} クリティカルセクションの外でバッ
+ファのスリープロックを取得しても安全です．なぜなら，\texttt{b->refcnt}
+が非ゼロでであることにより，バッファが別のディスクブロックのために再利
+用されることはないからです．スリープロックは，ブロックのバッファされた
+内容の読み書きを保護します．それに対し，\texttt{bcache.lock} はどのブ
+ロックがキャッシュされているかという情報を保護します．
 
-If all the buffers are busy, then too many processes are
-simultaneously executing file system calls;
-\lstinline{bget}
-panics.
-A more graceful response might be to sleep until a buffer became free,
-though there would then be a possibility of deadlock.
+もし全てのバッファが使用中だったら，同時にファイルのシステムコールを実
+行しているプロセスが多すぎるということです．\texttt{bget} はパニックを
+起こします．より穏やかな対応として，バッファが使用可能になるまで
+スリープする方法もありえますが，デッドロックの可能性があります．
 
-Once
-\indexcode{bread}
-has read the disk (if needed) and returned the
-buffer to its caller, the caller has
-exclusive use of the buffer and can read or write the data bytes.
-If the caller does modify the buffer, it must call
-\indexcode{bwrite}
-to write the changed data to disk before releasing the buffer.
-\lstinline{Bwrite}
-\lineref{kernel/bio.c:/^bwrite/}
-calls
-\indexcode{virtio_disk_rw}
-to talk to the disk hardware.
+\indexcode{bread} が（必要に応じて）ディスクからの読み込みを完了し，バッファ
+を呼び出し元にリターンしたら，その呼び出し元はバッファを排他的に利用し
+て読み書きができます．もし呼び出し元がバッファを書き換えたら，バッファ
+を解放する前に，\indexcode{bwrite} を呼んでデータをディスクに書きもどす必
+要があります．\texttt{bwrite}
+\lineref{kernel/bio.c:/^bwrite/} は，
+\indexcode{virtio_disk_rw} を呼んでディスクのハー
+ドウェアとやり取りをします．
 
-When the caller is done with a buffer,
-it must call
-\indexcode{brelse}
-to release it. 
-(The name
-\lstinline{brelse},
-a shortening of
-b-release,
-is cryptic but worth learning:
-it originated in Unix and is used in BSD, Linux, and Solaris too.)
-\lstinline{Brelse}
+バッファを使い終わったら \indexcode{brelse} を呼んで
+解放しなくてはなりません．(\texttt{brelse} は ``b-release'' を短縮した
+ものであり，暗号じみていますが学ぶ価値があります．Unix に起源があ
+り，BSD, Linux, および Solaris でも使われています)．\texttt{brelse}
 \lineref{kernel/bio.c:/^brelse/}
-releases the sleep-lock and
-moves the buffer
-to the front of the linked list
-\linerefs{kernel/bio.c:/b->next->prev.=.b->prev/,/bcache.head.next.=.b/}.
-Moving the buffer causes the
-list to be ordered by how recently the buffers were used (meaning released):
-the first buffer in the list is the most recently used,
-and the last is the least recently used.
-The two loops in
-\lstinline{bget}
-take advantage of this:
-the scan for an existing buffer must process the entire list
-in the worst case, but checking the most recently used buffers
-first (starting at
-\lstinline{bcache.head}
-and following
-\lstinline{next}
-pointers) will reduce scan time when there is good locality of reference.
-The scan to pick a buffer to reuse picks the least recently used
-buffer by scanning backward
-(following 
-\lstinline{prev}
-pointers).
+はスリープロックを解放し，バッファをリンクリストの先頭に付け加えます
+\linerefs{kernel/bio.c:/b->next->prev.=.b->prev/,/bcache.head.next.=.b/}．
+バッファを付け加えると，リスト
+は，使われた（すなわち解放された）タイミングが新しい順にバッファを整列
+します．リストの先頭バッファはもっとも最近使われたもので，最後尾はもっとも使わ
+れていないものです．\texttt{bget} の 2 つのループがその性質を利用します．
+既存のバッファを探そうとすると，最悪の場合ではリスト全体を見る必要があ
+ります．しかし，最近使われたバッファから順に調べれば（すなわ
+ち\texttt{bcache.head} からはじめて順にリストをたどれば），参照によ
+い局所性があれば，スキャン時間を減らすことができます．一方，再利用する
+バッファを探すときは，リストを逆向きにたどれば，最近もっとも使われていない
+バッファを見つけることができます．
+
 %% 
 %%  -------------------------------------------
 %% 
-\section{Logging layer}
+\section{ロギング層}
 
-One of the most interesting problems in file system design is crash
-recovery. The problem arises because many file-system operations
-involve multiple writes to the disk, and a crash after a subset of the
-writes may leave the on-disk file system in an inconsistent state. For
-example, suppose a crash occurs during file truncation (setting
-the length of a file to zero and freeing its content blocks).
-Depending on the order of the disk writes, the crash 
-may either leave an inode with a reference
-to a content block that is marked free,
-or it may leave an allocated but unreferenced content block.
+ファイルシステム設計でもっともおもしろい問題の 1 つはクラッシュリカバリ
+です．ファイルシステムのオ
+ペレーションの多くは，ディスクへの複数回のアクセスが必要となるので，
+途中でクラッシュすると，ディスク上のファイルシステムが一貫性
+のない状態になってしまうことがあります．たとえば，ファイルのトランケーショ
+ン（ファイルの長さをゼロにして，中身を保存していたブロックを解放するこ
+と）の途中でクラッシュが起きた場合を考えてみましょう．ディスクへの書き
+込み順序によりますが，クラッシュにより，解放済みとマークされたブロッ
+クを使い続ける inode ができてしまうか，もしくはアロケートされているが
+どこからも参照されていないコンテンツ用ブロックができてしまいます．
 
-The latter is relatively benign, but an inode that refers to a freed
-block is likely to cause serious problems after a reboot.  After reboot, the
-kernel might allocate that block to another file, and now we have two different
-files pointing unintentionally to the same block.  If xv6 supported
-multiple users, this situation could be a security problem, since the
-old file's owner would be able to read and write blocks in the
-new file, owned by a different user.
+後者は比較的マシですが，解放済みブロックを参照する inode は再
+起動後に深刻な問題を引き起こす可能性があります．再起動後，カーネルはそ
+のブロックを別のファイルのためにアロケートする可能性があります．そうする
+と，2つの異なるファイルが，意図せず同じブロックを指すことになります．も
+し xv6 が複数ユーザをサポートしていたとしたら，この状況はセキュリティ上
+の問題になります．なぜなら，古いファイルの所有者は，別のユーザが持つ新
+しいファイルのブロックに対して読み書きができてしまうからです．
 
-Xv6 solves the problem of crashes during file-system operations with a
-simple form of logging. An xv6 system call does not directly write
-the on-disk file system data structures. Instead, it places a
-description of all the disk writes it wishes to make in a 
-\indextext{log} 
-on the disk. Once the system call has logged all of its writes, it writes a
-special 
-\indextext{commit}
-record to the disk indicating that the log contains
-a complete operation. At that point the system call copies the writes
-to the on-disk file system data structures. After those writes have
-completed, the system call erases the log on disk.
+xv6 はファイルシステムのオペレーション途中でのクラッシュの問題を，シン
+プルなロギングで解決します．xv6 のシステムコールは，ディスク上
+のファイルシステムのデータ構造を直接読み書きすることはありません．
+そのかわり，ディ
+スク上の\indextext{ログ}に記入するのです．システムコールは，全ての書き込み処理をログ
+に書き終えたら，特別な\indextext{コミット}記録をディスクに書き込む
+ことで，ログが完全なオペレーションを含むことマークをつけます．それから，
+書き込み内容をディスク上のファイルシステムのデータ構造へ
+コピーします．書き込みが終わったら，システムコールはディスク上
+のログを消去します．
 
-If the system should crash and reboot, the file-system code recovers
-from the crash as follows, before running any processes. If the log is
-marked as containing a complete operation, then the recovery code
-copies the writes to where they belong in the on-disk file system. If
-the log is not marked as containing a complete operation, the recovery
-code ignores the log.  The recovery code finishes by erasing
-the log.
+もしシステムがクラッシュして再起動した場合，ファイルシステムは
+次のようにしてクラッシュから復帰します．もし
+ログに完全なオペレーションが入っているとマークされていたら，復帰のためのコードが
+動き，ディスク上のファイルシステムの適切な場所へデータをコピー
+します．一方，オペレーションが完全であるとマークされていない
+ログは無視します．復帰のためのコードは，最後にログを消去します．
 
-Why does xv6's log solve the problem of crashes during file system
-operations? If the crash occurs before the operation commits, then the
-log on disk will not be marked as complete, the recovery code will
-ignore it, and the state of the disk will be as if the operation had
-not even started. If the crash occurs after the operation commits,
-then recovery will replay all of the operation's writes, perhaps
-repeating them if the operation had started to write them to the
-on-disk data structure. In either case, the log makes operations
-atomic with respect to crashes: after recovery, either all of the
-operation's writes appear on the disk, or none of them appear.
+なぜ，xv6 のログを使うと，ファイルシステムのオペレーション途中のクラッ
+シュ問題が解決するのでしょうか？もしオペレーションのコミット前にクラッ
+シュが起きたら，ディスク上のログは完全とマークされないので，復帰用のコー
+ドはそれを無視します．その結果，ディスクは，そのオペレーションが始まる
+前の状態にもどります．コミットのあとにクラッシュが起きたら，復帰用のコー
+ドが書き込みを再度行います．その際，クラッシュ前に行っ
+た書き込みを繰り返すこともありえます．いずれの場合でも，ログはオペレー
+ションを（クラッシュに関して）アトミックにします．復帰のあと，オペレー
+ションによる書き込みは，全体がディスク上にあるか，もしくはまったく無い
+かのいずれかになります．
+
 %% 
 %% 
 %% 
-\section{Log design}
+\section{ログの設計}
 
-The log resides at a known fixed location, specified in the superblock.
-It consists of a header block followed by a sequence
-of updated block copies (``logged blocks'').
-The header block contains an array of sector
-numbers, one for each of the logged blocks, and 
-the count of log blocks.
-The count in the header block on disk is either
-zero, indicating that there is no transaction in the log,
-or non-zero, indicating that the log contains a complete committed
-transaction with the indicated number of logged blocks.
-Xv6 writes the header
-block when a transaction commits, but not before, and sets the
-count to zero after copying the logged blocks to the file system.
-Thus a crash midway through a transaction will result in a
-count of zero in the log's header block; a crash after a commit
-will result in a non-zero count.
+ログは，スーパーブロックで指定する定位置に置かれます．ログはヘッダブロッ
+クと，更新されたブロックのコピー (ログブロック) の列からなります．ヘッ
+ダブロックには，各ログブロックのセクタ番号の配列と，ログブロックのカウ
+ント数が入っています．ディスク上のヘッダブロックのカウント数がゼロであ
+るとき，ログにはトランザクションが記録されていません．一方，カウント数
+が非ゼロであるとき，ログはコミットされた完全なトランザクションを保存し
+ており，それはカウント数分のブロックからなります．xv6は，トランザクショ
+ンをコミットするときにヘッダブロックへ書き込みを行い，ログブロックをファ
+イルシステムへコピーしたあとにカウント数をゼロに戻します．トランザクショ
+ンの途中でクラッシュが起きると，ヘッダブロックのカウント数をゼロのまま
+になります．一方，コミット後にクラッシュが起きると，カウント数は非ゼロ
+となります．
 
-Each system call's code indicates the start and end of the sequence of
-writes that must be atomic with respect to crashes.
-To allow concurrent execution of file-system operations
-by different processes,
-the logging system can accumulate the writes
-of multiple system calls into one transaction.
-Thus a single commit may involve the writes of multiple
-complete system calls.
-To avoid splitting a system call across transactions, the logging system
-only commits when no file-system system calls are underway.
+各システムコールのコードが，クラッシュに関してアトミックにすべき書き込
+み列の範囲を決めます．複数のプロセスによるオ
+ペレーションを並行処理するため，ロギングシステムは複数のシステムコール
+による書き込みを 1 つのトランザクションに固めることがあります．
+よって，1 つのコミットは，複数のシステムコールの書き込みを含むこ
+とがあります．システムコールがトランザクションをまたがないように，
+他のファイルシステムのシステムコールが動いていないときに限りコミットを
+行います．
 
-The idea of committing several transactions together is known as 
-\indextext{group commit}.
-Group commit reduces the number of disk operations
-because it amortizes the fixed cost of a commit over multiple
-operations.
-Group commit also hands the disk system more concurrent writes
-at the same time, perhaps allowing the disk to write
-them all during a single disk rotation.
-Xv6's virtio driver doesn't support this kind of
-\indextext{batching},
-but xv6's file system design allows for it.
+複数のトランザクションをまとめてコミットするアイディアは，
+\indextext{グループコミット} (group commit) と呼ばれます．グループコミットは，ディスクオペレーショ
+ンの数を減らす効果があります．コミットのための固定コストが，複数のオペ
+レーションで割り勘になるからです．グループコミットにより，ディスクシス
+テムはよりたくさんの書き込みを並行して行えるようになります．たとえば，
+ディスクが一回転するあいだに全てを書き込むような場合で
+す．xv6 の \texttt{virtio} はそのような\indextext{バッチ処理}は行いません
+が，xv6 のファイルシステムの設計では原理的にそのようなことが可能です．
 
-Xv6 dedicates a fixed amount of space on the disk to hold the log.
-The total number of blocks written by the system calls in a
-transaction must fit in that space.
-This has two consequences.
-No single system call
-can be allowed to write more distinct blocks than there is space
-in the log. This is not a problem for most system calls, but two
-of them can potentially write many blocks: 
-\indexcode{write}
-and
-\indexcode{unlink}.
-A large file write may write many data blocks and many bitmap blocks
-as well as an inode block; unlinking a large file might write many
-bitmap blocks and an inode.
-Xv6's write system call breaks up large writes into multiple smaller
-writes that fit in the log,
-and 
-\lstinline{unlink}
-doesn't cause problems because in practice the xv6 file system uses
-only one bitmap block.
-The other consequence of limited log space
-is that the logging system cannot allow a system call to start
-unless it is certain that the system call's writes will
-fit in the space remaining in the log.
+xv6 は，固定長のディスク領域を，ログを保存するために使います．あるトラ
+ンザクションが書き込むのブロック数は，その
+領域に収まる必要があります．そのために次の 2 つの制限が導かれ
+ます．1つ目の制限は，どのシステムコールも，ログよりも大きいサイズの書き
+込みはできないというものです．これは，ほとんどのシステムコールでは
+問題になりませんが，\indexcode{write} と \indexcode{unlink} の2 つは，潜在的に
+たくさんのブロックを書き込む可能性があります．大きなファイルの書き込み
+は，データブロックだけでなく，ビットマップブロックや inode へ
+の大量の書き込みを生じるからです．同様に，大きなファイルのアンリンクは，ビッ
+トマップブロックや inode への大量の書き込みを生じま
+す．xv6 の\texttt{write} システムコールは，大きい書き込みを，ログに収まる
+小さい書き込みに分解します．xv6 では \texttt{unlink} は問題になりません．
+なぜなら，xv6 はビットマップブロックを1つしか使わないからです．
+ログのためのスペースが限られることの 2 つ目の制限は，あるシステムコー
+ルの書き込みが，ログの残りのスペースに収まる場合でなければ，そのシステ
+ムコールを始めることができないというものです．
+
 %% 
 %% 
 %% 
-\section{Code: logging}
+\section{Code: ロギング}
 
-A typical use of the log in a system call looks like this:
+システムコールにおいてログを使用する典型例は以下のようなものです．
 \begin{lstlisting}[]
   begin_op();
   ...
@@ -443,94 +345,72 @@ A typical use of the log in a system call looks like this:
   end_op();
 \end{lstlisting}
 
-\indexcode{begin_op}
+\indexcode{begin_op} 
 \lineref{kernel/log.c:/^begin.op/}
-waits until
-the logging system is not currently committing, and until
-there is enough unreserved log space to hold
-the writes from this call.
-\lstinline{log.outstanding}
-counts the number of system calls that have reserved log
-space; the total reserved space is 
-\lstinline{log.outstanding}
-times
-\lstinline{MAXOPBLOCKS}.
-Incrementing
-\lstinline{log.outstanding}
-both reserves space and prevents a commit
-from occuring during this system call.
-The code conservatively assumes that each system call might write up to
-\lstinline{MAXOPBLOCKS}
-distinct blocks.
+は，ロギングシステムがコミットし
+ておらず，かつそのシステムコールによる書き込みが入るログ領域が空
+くまで待ちます．\texttt{log.outstanding} は，ログ領域を予約した
+システムコール数をカウントします．使用されているスペース
+は\texttt{log.outstanding}$\times$\texttt{MAXOPBLOCKS}で
+す．\texttt{log.outstanding} を増加させることで，スペースを予約するとと
+もに，そのシステムコールの間にコミットが発生しないようにします．コード
+は，各システムコールのコードが \texttt{MAXOPBLOCKS} ブロックを使用する
+かもしれないと保守的に想定します．
 
 \indexcode{log_write}
 \lineref{kernel/log.c:/^log.write/}
-acts as a proxy for 
-\indexcode{bwrite}.
-It records the block's sector number in memory,
-reserving it a slot in the log on disk,
-and pins the buffer in the block cache
-to prevent the block cache from evicting it.
-The block must stay in the cache until committed:
-until then, the cached copy is the only record
-of the modification; it cannot be written to
-its place on disk until after commit;
-and other reads in the same transaction must
-see the modifications.
-\lstinline{log_write}
-notices when a block is written multiple times during a single
-transaction, and allocates that block the same slot in the log.
-This optimization is often called
-\indextext{absorption}.
-It is common that, for example, the disk block containing inodes
-of several files is written several times within a transaction.  By absorbing
-several disk writes into one, the file system can save log space and
-can achieve better performance because only one copy of the disk block must be
-written to disk.
+は，\indexcode{bwrite} のプロキシと
+して動作します．それは，ブロックのセクタ番号をメモリに記録し，ディ
+スク上のログにスロットを予約し，ブロックキャッシュ内のバッファをピン留
+めしてキャッシュが退去 (evict) されないようにします．ブロックは，コミッ
+トが済むまでキャッシュに留まる必要があります．キャッシュされ
+たコピーが，行われた変更の唯一の記録だからです．コミットするまで，それらをディ
+スク上には書き込めません．一方，同じトランザクションの
+他の読み込みは，その変更を見ることができなくてはいけません．
+\texttt{log\_write} は，トランザクション内の特定のブロックに何度
+も書き込みが行われたらそのことに気づき，ログの同じスロットにあるブ
+ロックをアロケートします．この最適化は，よく\indextext{吸収} (absorption) と呼ばれ
+ます．たとえば，さまざまなファイルの inode を含むディスクブロッ
+クは，1 つのトランザクションの中で何度も書き込まれることが一般的です．
+複数のディスク書き込みを 1 つに吸収することで，ファイルシステムはログの
+スペースを節約するとともに，1つのコピーだけがディスクに書き込まれるよう
+にすることで性能向上を達成できます．
 
 \indexcode{end_op}
 \lineref{kernel/log.c:/^end.op/}
-first decrements the count of outstanding system calls.
-If the count is now zero, it commits the current
-transaction by calling
-\lstinline{commit().}
-There are four stages in this process.
-\lstinline{write_log()}
+はまず，未解決な (outstanding
+な) システムコール数を減らします．その数がゼロになった
+ら，\texttt{commit()} を呼んでそのトランザクションをコミットします．こ
+のプロセスには 4 つのステージがあります．\texttt{write\_log()}
 \lineref{kernel/log.c:/^write.log/}
-copies each block modified in the transaction from the buffer
-cache to its slot in the log on disk.
-\lstinline{write_head()}
-\lineref{kernel/log.c:/^write.head/}
-writes the header block to disk: this is the
-commit point, and a crash after the write will
-result in recovery replaying the transaction's writes from the log.
-\indexcode{install_trans}
+はトランザクションで変更される各ブロックを，バッファ
+キャッシュからディスク上のログのスロットへコピーしま
+す．\texttt{write\_head()} \lineref{kernel/log.c:/^write.head/} はヘッダブロックをディス
+クに書き込みます．これがコミットする瞬間です．この書き込みが終わっ
+たあとにクラッシュが起きると，ログの中身を再度実行する復元が起きま
+す．\indexcode{install_trans} 
 \lineref{kernel/log.c:/^install_trans/}
-reads each block from the log and writes it to the proper
-place in the file system.
-Finally
-\lstinline{end_op}
-writes the log header with a count of zero;
-this has to happen before the next transaction starts writing
-logged blocks, so that a crash doesn't result in recovery
-using one transaction's header with the subsequent transaction's
-logged blocks.
+はログの各ブロックを読み，
+ファイルシステムの適切な場所に書き込みます．最後に，\texttt{end\_op} が
+カウント数がゼロのログヘッダを書き込みます．この処理は，次のトランザク
+ションがログブロックに書き込みを行う前に行う必要があります．そうしない
+と，今回のログヘッダと，次のトランザクションのログブロックという誤った組
+み合わせでクラッシュ後の復元が行われてしまうからです．
 
-\indexcode{recover_from_log}
+\indexcode{recover_from_log} 
 \lineref{kernel/log.c:/^recover_from_log/}
-is called from 
-\indexcode{initlog}
+は，\indexcode{initlog}
 \lineref{kernel/log.c:/^initlog/},
-which is called from \indexcode{fsinit}\lineref{kernel/fs.c:/^fsinit/} during boot before the first user process runs
-\lineref{kernel/proc.c:/fsinit/}.
-It reads the log header, and mimics the actions of
-\lstinline{end_op}
-if the header indicates that the log contains a committed transaction.
+から呼び出されます．\texttt{initlog} は, 起動時
+に最初のプロセスが実行する前に \lineref{kernel/proc.c:/fsinit/}，\indexcode{fsinit}
+\lineref{kernel/fs.c:/^fsinit/}
+が呼び出します．\texttt{recover\_from\_log} はログヘッ
+ダを読み，もしそれがコミット済みのトランザクションを含むのであれば
+\texttt{end\_op} のマネをします．
 
-An example use of the log occurs in 
-\indexcode{filewrite}
+ログを使用する 1 つの例は，\indexcode{filewrite}
 \lineref{kernel/file.c:/^filewrite/}.
-The transaction looks like this:
+にあります．そのトランザクションは次のようなものです．
 \begin{lstlisting}[]
       begin_op();
       ilock(f->ip);
@@ -538,1267 +418,728 @@ The transaction looks like this:
       iunlock(f->ip);
       end_op();
 \end{lstlisting}
-This code is wrapped in a loop that breaks up large writes into individual
-transactions of just a few sectors at a time, to avoid overflowing
-the log.  The call to
-\indexcode{writei}
-writes many blocks as part of this
-transaction: the file's inode, one or more bitmap blocks, and some data
-blocks.
-%% 
-%% 
-%% 
-\section{Code: Block allocator}
+このコードは，書き込みを，数セクタていどの小さなトランザクションに分解
+するループにつつまれています．そうすることでログを圧迫しないようにし
+ています．\indexcode{writei} を呼ぶと，そのトランザクションの一部として，
+たくさんのブロックを書き込みます．ファイルの inode，1つもしく
+は複数のビットマップブロック，そしていくつかのデータブロックです．
 
-File and directory content is stored in disk blocks,
-which must be allocated from a free pool.
-xv6's block allocator
-maintains a free bitmap on disk, with one bit per block. 
-A zero bit indicates that the corresponding block is free;
-a one bit indicates that it is in use.
-The program
-\lstinline{mkfs}
-sets the bits corresponding to the boot sector, superblock, log blocks, inode
-blocks, and bitmap blocks.
+%% 
+%% 
+%% 
+\section{Code: ブロックアロケータ}
 
-The block allocator provides two functions:
-\indexcode{balloc}
-allocates a new disk block, and
-\indexcode{bfree}
-frees a block.
-\lstinline{Balloc}
-The loop in
-\lstinline{balloc}
-at
+ファイルとディレクトリの中身はディスクブロックに保存されますが，そのた
+めのディスクブロックは，使用可能なプールからアロケートする必要がありま
+す．xv6 のブロックアロケータは，使用可能なディスクを，1 ビットが 1 ブロッ
+クに対応するビットマップとして管理します．ビットが 0 であることは対応す
+るブロックが使用可能であること，ビットが 1 であることは使用中であること
+をそれぞれ意味します．\texttt{mkfs} というプログラムが，ブートセクタ，
+スーパーブロック，ログブロック，inode ブロック，およびビットマッ
+プブロックに対応するビットをセットします．
+
+ブロックアロケータは 2 つの関数を提供します．新たなディスクブロックをア
+ロケートする \indexcode{balloc} と，ブロックを解放する \indexcode{bfree} です．
 \lineref{kernel/fs.c:/^..for.b.=.0/}
-considers every block, starting at block 0 up to 
-\lstinline{sb.size},
-the number of blocks in the file system.
-It looks for a block whose bitmap bit is zero,
-indicating that it is free.
-If
-\lstinline{balloc}
-finds such a block, it updates the bitmap 
-and returns the block.
-For efficiency, the loop is split into two 
-pieces.
-The outer loop reads each block of bitmap bits.
-The inner loop checks all 
-\lstinline{BPB}
-bits in a single bitmap block.
-The race that might occur if two processes try to allocate
-a block at the same time is prevented by the fact that
-the buffer cache only lets one process use any one bitmap block at a time.
+にある \texttt{balloc} のループは，0 番から（そのファ
+イルシステムに入っているブロックの総数である）\texttt{sb.size} 番のブロッ
+クに向けて順番に調べていきます．\texttt{balloc} は対応するビットマップ
+上のビットがゼロ，すなわち未使用のブロックを探します．そのようなブロッ
+クを見つけると，\texttt{balloc} はビットマップを更新し，そのブロックを
+返します．効率のために，ループは 2 重に分かれています．外側のループは
+ビットマップのビットを含むブロックを順に読みます．続く内側のループは，
+あるビットマップブロックの，全ての\texttt{BPB} ビットをチェックします．
+あるプロセスが，1度に1つのビットマップブロックしか使えないようにバッ
+ファキャッシュが制御することで，2 つのプロセスが同時にブロックをアロケー
+トしようとして生じる競合を防ぎます．
 
-\lstinline{Bfree}
+\texttt{bfree}
 \lineref{kernel/fs.c:/^bfree/}
-finds the right bitmap block and clears the right bit.
-Again the exclusive use implied by
-\lstinline{bread}
-and
-\lstinline{brelse}
-avoids the need for explicit locking.
+は所望のビットマップブロックを見つけ，
+その中の所望のビットをクリアします．くり返しになります
+が，\texttt{bread} と \texttt{brelse} による排他的な取り扱いにより，
+明示的なロックは不要です．
 
-As with much of the code described in the remainder of this chapter, 
-\lstinline{balloc}
-and
-\lstinline{bfree}
-must be called inside a transaction.
+本章の残りで記述するコードと同様に，\texttt{balloc} と \texttt{bfree}
+はトランザクションの内部で呼ばれる必要があります．
 %% 
 %%  -------------------------------------------
 %% 
-\section{Inode layer}
+\section{inode 層}
 
-The term 
-\indextext{inode} 
-can have one of two related meanings.
-It might refer to the on-disk data structure containing
-a file's size and list of data block numbers.
-Or ``inode'' might refer to an in-memory inode, which contains
-a copy of the on-disk inode as well as extra information needed
-within the kernel.
+\indextext{inode} という用語は，2 つの関連した意味を持ちます．一方で，ファ
+イルサイズやデータブロック番号のリストを含むディスク上のデータ構造を指
+すことがあります．またもう一方で，メモリ上の inode を指すこと
+もあります．これは，ディスク上の inode をコピーし，カーネル向
+けの追加情報を付け加えたものです．
 
-The on-disk inodes
-are packed into a contiguous area
-of disk called the inode blocks.
-Every inode is the same size, so it is easy, given a
-number n, to find the nth inode on the disk.
-In fact, this number n, called the inode number or i-number,
-is how inodes are identified in the implementation.
+ディスク上の inode は，inode ブロックと呼ばれるディスク上の連続した領域
+に格納されています．全ての inode は同じサイズであるため，ある数字 $n$
+が与えられたとき，容易に $n$ 番目の inode をディスク上で見つけることが
+できます．実際，この番号$n$ は inode 番号，もしくは i-number と呼ば
+れ，inode を識別するのに用います．
 
-The on-disk inode is defined by a
-\indexcode{struct dinode}
-\lineref{kernel/fs.h:/^struct.dinode/}.
-The 
-\lstinline{type}
-field distinguishes between files, directories, and special
-files (devices).
-A type of zero indicates that an on-disk inode is free.
-The
-\lstinline{nlink}
-field counts the number of directory entries that
-refer to this inode, in order to recognize when the
-on-disk inode and its data blocks should be freed.
-The
-\lstinline{size}
-field records the number of bytes of content in the file.
-The
-\lstinline{addrs}
-array records the block numbers of the disk blocks holding
-the file's content.
+ディスク上の inode は，\indexcode{dinode} 構造体
+\lineref{kernel/fs.h:/^struct.dinode/}
+が定義します．\texttt{type} フィールドにより，ファイル，ディレクトリ，
+および特殊ファイル（デバイス）を区別します．\texttt{type} が 0 であるこ
+とは，そのディスク上の inode が使用可能であることを示しま
+す．\texttt{nlink} フィールドは，その inode を参照するディレク
+トリの個数をカウントしており，ディスク上の inode とデータブロッ
+クをいつ解放すべきかを知るために使います．\texttt{size} フィールド
+は，そのファイルの中身のバイト数を記録します．\texttt{addr} 配列は，そ
+のファイルの中身を保存するブロックのブロック番号を記
+録します．
 
-The kernel keeps the set of active inodes in memory;
-\indexcode{struct inode}
+カーネルは，よく使う inode をメモリにいれておきま
+す．\indexcode{inode} 構造体
 \lineref{kernel/file.h:/^struct.inode/}
-is the in-memory copy of a 
-\lstinline{struct}
-\lstinline{dinode}
-on disk.
-The kernel stores an inode in memory only if there are
-C pointers referring to that inode. The
-\lstinline{ref}
-field counts the number of C pointers referring to the
-in-memory inode, and the kernel discards the inode from
-memory if the reference count drops to zero.
-The
-\indexcode{iget}
-and
-\indexcode{iput}
-functions acquire and release pointers to an inode,
-modifying the reference count.
-Pointers to an inode can come from file descriptors,
-current working directories, and transient kernel code
-such as
-\lstinline{exec}.
+が，\texttt{dinode} のメモ
+リ上のコピーです．カーネルがメモリ上に inode を置いておくのは，
+それを指す C のポインタが存在するときにかぎります．\texttt{ref} フィー
+ルドは，メモリ上 inode を参照する C ポインタの数をカウント
+するためにあります．もし参照カウントがゼロになったら，カーネル
+はその inode をメモリから破棄します．\indexcode{iget} と \indexcode{iput}
+関数は，inode へのポインタを取得し，参照カウントを変更しま
+す．inode を指すポインタを使うのは，ファイルディスクリプタ，カ
+レントディレクトリ，および \texttt{exec} などの一時的なカーネルのコード
+などです．
 
-There are four lock or lock-like mechanisms in xv6's
-inode code.
-\lstinline{icache.lock}
-protects the invariant that an inode is present in the cache
-at most once, and the invariant that a cached inode's
-\lstinline{ref}
-field counts the number of in-memory pointers to the cached inode.
-Each in-memory inode has a
-\lstinline{lock}
-field containing a
-sleep-lock, which ensures exclusive access to the
-inode's fields (such as file length) as well as to the
-inode's file or directory content blocks.
-An inode's
-\lstinline{ref},
-if it is greater than zero, causes the system to maintain
-the inode in the cache, and not re-use the cache entry for
-a different inode.
-Finally, each inode contains a
-\lstinline{nlink}
-field (on disk and copied in memory if it is cached) that
-counts the number of directory entries that refer to a file;
-xv6 won't free an inode if its link count is greater than zero.
+xv6 の inode のコードには，4 つのロックもしくはロックに類似し
+たメカニズムがあります．\texttt{icache.lock} は，「inode は
+キャッシュ内に最大でも1個しか存在しない」および「キャッシュされ
+た inode の \texttt{ref} フィールドは，キャッシュされ
+たinode を指すメモリ内ポインタの数を示す」という不変量を
+保護します．各メモリ内 inode は，スリープロックのための
+フィールドを持ち，inode の各フィールド（たとえばファイルの長さ）
+や，その inode 内のファイル・ディレクトリのコンテンツブロック
+が排他的にアクセスされることを保証しま
+す．inode の \texttt{ref} がゼロより大きければ，システムはそ
+の inode のキャッシュを維持します．すなわち，そのキャッシュの
+エントリを別の inode のために再利用しません．最後に，
+各 inodeは \texttt{nlink} フィールド（ディスク上，およびキャッ
+シュされているならメモリ上のコピー）を持ち，そのファイルを参照するディ
+レクトリエントリの数をカウントします．xv6 は，\texttt{nlink} がゼロより
+も大きい限りは，その inode を解放しません．　
 
-A
-\lstinline{struct}
-\lstinline{inode}
-pointer returned by
-\lstinline{iget()}
-is guaranteed to be valid until the corresponding call to
-\lstinline{iput()};
-the inode won't be deleted, and the memory referred to
-by the pointer won't be re-used for a different inode.
-\lstinline{iget()}
-provides non-exclusive access to an inode, so that
-there can be many pointers to the same inode.
-Many parts of the file-system code depend on this behavior of
-\lstinline{iget()},
-both to hold long-term references to inodes (as open files
-and current directories) and to prevent races while avoiding
-deadlock in code that manipulates multiple inodes (such as
-pathname lookup).
+\texttt{iget()} で取得した \texttt{inode} 構造体を指すポインタは，対応す
+る \texttt{iput} を呼ぶまでは有効です．すなわち，その inode は
+削除されず，そのポインタが参照するメモリが別の inode のために
+再利用されることはありません．\texttt{iget()} は，inode への非
+排他的なアクセスを提供します．ファイルシステムの多くの部分が，こ
+の \texttt{iget()} の動作に頼ることで，inode に対して（開いたファ
+イルとカレントディレクトリとして）長期的な参照を持ったり，複数
+の inode を操作するとき（たとえばパス名の解決）にデッドロック
+を避けながら競合を防いだりします．
 
-The
-\lstinline{struct}
-\lstinline{inode}
-that 
-\lstinline{iget}
-returns may not have any useful content.
-In order to ensure it holds a copy of the on-disk
-inode, code must call
-\indexcode{ilock}.
-This locks the inode (so that no other process can
-\lstinline{ilock}
-it) and reads the inode from the disk,
-if it has not already been read.
-\lstinline{iunlock}
-releases the lock on the inode.
-Separating acquisition of inode pointers from locking
-helps avoid deadlock in some situations, for example during
-directory lookup.
-Multiple processes can hold a C pointer to an inode
-returned by 
-\lstinline{iget},
-but only one process can lock the inode at a time.
+\texttt{iget} が返す \texttt{inode} 構造体は，意味ある中身を持っていな
+いかもしれません．それが，ディスク上の inode のコピーであるこ
+とを保証するには \indexcode{ilock} を呼ばなくてなりません．
+すると，inode をロックし（他のプロセス
+が \texttt{ilock} できないようにしてから），もしまだ読まれていなければ
+ディスクから inode を読み出しま
+す．\texttt{iunlock} は inode のロックを解放しま
+す．inode へのポインタの取得とロックを分離することは，ある状況
+においてデッドロックを避けるのに役立ちます．たとえば，ディレクトリを検
+索しているときです．複数のプロセスが\texttt{iget} が返し
+た inode へのポインタを持つ可能性がありますが，inode
+をロックできるプロセスは 1 度に 1 つだけです．
 
-The inode cache only caches inodes to which kernel code
-or data structures hold C pointers.
-Its main job is really synchronizing access by multiple processes;
-caching is secondary.
-If an inode is used frequently, the buffer cache will probably
-keep it in memory if it isn't kept by the inode cache.
-The inode cache is \indextext{write-through}, which means that code that
-modifies a cached inode must immediately write it to disk with
-\lstinline{iupdate}.
+カーネルのコードやデータ構造の C ポインタが指す inode のみが
+キャッシュされます．その主な仕事は，実は複数プロセスからのアクセスを同
+期化することにあり，キャッシュすること自体は副次的です．もしあ
+る inode が頻繁に使われるならば，たとえ inode キャッシュ
+に入っていなかったとしても，バッファキャッシュがメモリ上に置いておくは
+ずだからです．inode キャッシュは\indextext{ライトスルー} (write through) です．
+すなわち，キャッシュされた inode を書き換えたコードは，
+\texttt{iupdate} を用いて即座にディスクへ書き込まなくてはなりません．
+
 %% 
 %%  -------------------------------------------
 %% 
-\section{Code: Inodes}
+\section{Code: inode}
 
-To allocate a new inode (for example, when creating a file),
-xv6 calls
-\indexcode{ialloc}
-\lineref{kernel/fs.c:/^ialloc/}.
-\lstinline{Ialloc}
-is similar to
-\indexcode{balloc}:
-it loops over the inode structures on the disk, one block at a time,
-looking for one that is marked free.
-When it finds one, it claims it by writing the new 
-\lstinline{type}
-to the disk and then returns an entry from the inode cache
-with the tail call to 
-\indexcode{iget}
-\lineref{kernel/fs.c:/return.iget\(dev..inum\)/}.
-The correct operation of
-\lstinline{ialloc}
-depends on the fact that only one process at a time
-can be holding a reference to 
-\lstinline{bp}:
-\lstinline{ialloc}
-can be sure that some other process does not
-simultaneously see that the inode is available
-and try to claim it.
+新しい inode をアロケートするとき（たとえばファイルを作ると
+き），xv6 は \indexcode{ialloc} \lineref{kernel/fs.c:/^ialloc/} を呼びま
+す．\texttt{ialloc} は \indexcode{balloc} とよく似ており，ディスク上
+の inode 構造体を1ブロックずつスキャンし，未使用とマークされた
+ものを探します．見つけたら，\texttt{ialloc} は新しい \texttt{type}をディ
+スクに書き込むことでそれを確保し，最後に \indexcode{iget} を呼んで得
+た inode キャッシュのエントリをリターンします \lineref{kernel/fs.c:/return.iget\(dev..inum\)/}．
+\texttt{ialloc} が正しく動作するには，1度に1つの
+プロセスだけが\texttt{bp} への参照を持つという事実が必要で
+す．\texttt{ialloc} は，他のプロセスが同じ inode を同時に確保
+しようとすることは無いと確信しています．
 
-\lstinline{Iget}
-\lineref{kernel/fs.c:/^iget/}
-looks through the inode cache for an active entry (\lstinline{ip->ref}
-\lstinline{>}
-\lstinline{0})
-with the desired device and inode number.
-If it finds one, it returns a new reference to that inode
-\linerefs{kernel/fs.c:/^....if.ip->ref.>.0/,/^....}/}.
-As
-\indexcode{iget}
-scans, it records the position of the first empty slot
-\linerefs{kernel/fs.c:/^....if.empty.==.0/,/empty.=.ip/},
-which it uses if it needs to allocate a cache entry.
+\texttt{iget} \lineref{kernel/fs.c:/^iget/} は inode キャッシュをスキャン
+し，所与のデバイスと inode 番号を持つ使用中エント
+リ (\texttt{(ip->ref > 0)}) を探します．見つけたら，そ
+の inode への新しい参照をリターンします \linerefs{kernel/fs.c:/^....if.ip->ref.>.0/,/^....}/}．
+\indexcode{iget} はスキャンするあいだ，
+最初の空きスロットの場所を記録しておき，新しいキャッシュのエントリをアロケート
+しなくてはならなくなったときに使います \linerefs{kernel/fs.c:/^....if.empty.==.0/,/empty.=.ip/}．
 
-Code must lock the inode using
-\indexcode{ilock}
-before reading or writing its metadata or content.
-\lstinline{Ilock}
-\lineref{kernel/fs.c:/^ilock/}
-uses a sleep-lock for this purpose.
-Once
-\indexcode{ilock}
-has exclusive access to the inode, it reads the inode
-from disk (more likely, the buffer cache) if needed.
-The function
-\indexcode{iunlock}
+コードは，\indexcode{inode} のメタデータや中身を読み書きする前
+に，\texttt{ilock} を用いてその inode をロックしま
+す．\texttt{ilock} \lineref{kernel/fs.c:/^ilock/} はそのためにスリープロックを使いま
+す．\indexcode{ilock} がその inode への排他的アクセスを取得したら，
+必要に応じて inode をディスクから（多くの場合はバッファ
+キャッシュから）読みます．\indexcode{iunlock} 関数
 \lineref{kernel/fs.c:/^iunlock/}
-releases the sleep-lock,
-which may cause any processes sleeping
-to be woken up.
+はスリープロックを解放し，必要に応じて眠っていたプロセスを起床させます．
 
-\lstinline{Iput}
-\lineref{kernel/fs.c:/^iput/}
-releases a C pointer to an inode
-by decrementing the reference count
-\lineref{kernel/fs.c:/^..ip->ref--/}.
-If this is the last reference, the inode's
-slot in the inode cache is now free and can be re-used
-for a different inode.
+\texttt{iput} \lineref{kernel/fs.c:/^iput/} は，
+参照カウントを減らすことで，あ
+る inode への C ポインタを解放します \lineref{kernel/fs.c:/^..ip->ref--/}．
+もしそれが最後の参照であれば，inode キャッシュにおけるそ
+のinodeのスロットは未使用となり，別の inode のために
+再利用できるようになります．
 
-If 
-\indexcode{iput}
-sees that there are no C pointer references to an inode
-and that the inode has no links to it (occurs in no
-directory), then the inode and its data blocks must
-be freed.
-\lstinline{Iput}
-calls
-\indexcode{itrunc}
-to truncate the file to zero bytes, freeing the data blocks;
-sets the inode type to 0 (unallocated);
-and writes the inode to disk
-\lineref{kernel/fs.c:/inode.has.no.links.and/}.
+もしある inode を指す C ポインタが無く，またリンクも無い
+（どのディレクトリにも入っていなかったら）ことに \indexcode{iput} が気づいた
+ら，inode とそのデータブロックを解放しなくてはなりませ
+ん．\texttt{iput} は \indexcode{itrunc} を呼び出してファイルを 0 バイトに
+トランケートすることで，データブロックを解放します．また，
+inode の \texttt{type} を 0 (未使用)にセットし，
+それをディスクに書き込みます \lineref{kernel/fs.c:/inode.has.no.links.and/}.
 
-The locking protocol in 
-\indexcode{iput}
-in the case in which it frees the inode deserves a closer look.
-One danger is that a concurrent thread might be waiting in
-\lstinline{ilock}
-to use this inode (e.g., to read a file or list a directory),
-and won't be prepared to find that the inode is not longer
-allocated. This can't happen because there is no way for
-a system call to get a pointer to a cached inode if it has
-no links to it and 
-\lstinline{ip->ref}
-is one. That one reference is the reference owned by the
-thread calling
-\lstinline{iput}.
-It's true that 
-\lstinline{iput}
-checks that the reference count is one outside of its
-\lstinline{icache.lock}
-critical section, but at that point the link
-count is known to be zero, so no thread will try
-to acquire a new reference.
-The other main danger is that a concurrent call to
-\lstinline{ialloc}
-might choose the same inode that
-\lstinline{iput}
-is freeing.
-This can only happen after the
-\lstinline{iupdate}
-writes the disk so that the inode has type zero.
-This race is benign; the allocating thread will politely wait
-to acquire the inode's sleep-lock before reading or writing
-the inode, at which point
-\lstinline{iput}
-is done with it.
+\indexcode{iput} が inode を解放するときのロックのプロトロルは詳
+しく見る価値があります．危険かもしれないのは，その inode を使
+うために（たとえばファイルやディレクトリの一覧を見るため
+に）\texttt{ilock} で待っている別のスレッドがいるかもしれないことです．
+そのスレッドは，inode が解放されてしまうことを想定してい
+ません．しかしそのようなことは決して起きません．リンクが無く，か
+つ \texttt{ip->ref} が 1 であるならば，システムコールは，そのキャッシュ
+された inode へのポインタを得ることはできないはずだからです．
+なお，その 1 つの参照は，\texttt{iput} を呼んだスレッドによるもので
+す．\texttt{iput} は，\texttt{icache.lock} クリティカルセクションの外で
+参照カウントが 1 であることを確認しますが，その時点においてリンク数
+は 0 であることがわかっているので，他のスレッドが新しいリファレンスを取
+得しようとすることはありません．
+%
+他にありうるかもしれない危険は，並行する \texttt{ialloc} の呼び出し
+が，\texttt{iput} が解放しようとしているのと同じinode を選んで
+しまうことです．それが生じるとしたら，inode の \texttt{type}
+が 0 になるように\texttt{iupdate} がディスクに書き込んだあとです．この
+競合は良性です．アロケートしようとしているスレッド
+は，inode に読み書きを行うまえに，inode のスリープロッ
+クをおとなしく待ちます．それまでには，\texttt{iput} は仕事を終えています．
 
-\lstinline{iput()}
-can write to the disk.  This means that any system call that uses the file
-system may write the disk, because the system call may be the last one having a
-reference to the file. Even calls like
-\lstinline{read()}
-that appear to be read-only, may end up calling
-\lstinline{iput().}
-This, in turn, means that even read-only system calls
-must be wrapped in transactions if they use the file system.
+\texttt{iput()} はディスクへの書き込みを行うことがあります．す
+なわち，ファイルシステムを使うシステムコールはどんなものでもディスクへ
+の書き込みを行うことがあるということです．なぜなら，そのシステムコール
+が持つ参照が，そのファイルへの最後の参照かもしれないからで
+す．\texttt{read()} は読み込みしかしないように見えます
+が，最終的に \texttt{iput()} を呼ぶことがありえます．よって，ファ
+イルシステムを使うならば，たとえ読み込みしか行わないシステムコールであっ
+ても，トランザクションでくるむ必要があります．
 
-There is a challenging interaction between
-\lstinline{iput()}
-and crashes.
-\lstinline{iput()}
-doesn't truncate a file immediately when the link count for the file
-drops to zero, because some process might still hold a reference to the inode in
-memory: a process might still be reading and writing to the file, because it
-successfully opened it. But, if a crash happens before the last process closes
-the file descriptor for the file, then the file will be marked allocated on disk
-but no directory entry will point to it.
+\texttt{iput()} とクラッシュには難しい関係がありま
+す．\texttt{iput()} は，そのファイルへのリンク数がゼロになったとき，す
+ぐにトランケートするわけではありません．他のプロセスが，そのメモ
+リ上 inode への参照を持っているかもしれないからです．まだその
+ファイルへの読み書きをしているプロセスもあるかもしれません．一方，全て
+のプロセスがそのファイルへのファイルディスクリプタを閉じる前にクラッシュ
+が起きたら，そのファイルはディスク上で使用中にもかかわらず，それを指す
+ディレクトリエントリが全くないという状況になってしまいます．
 
-File systems handle this case in one of two ways. The simple solution is that on
-recovery, after reboot, the file system scans the whole file system for files
-that are marked allocated, but have no directory entry pointing to them.  If any
-such file exists, then it can free those files.
+ファイルシステムがその問題を処理する方法は 2 通りあります．簡単な解決法
+は，再起動後の復帰時に，ファイルシステム全体をスキャンして，そのような
+（使用中だがそれを指すディレクトリエントリが無い）ファイルを探すという
+ものです．もしそのようなファイルを見つけたら解放します．
 
-The second solution doesn't require scanning the file system.  In this solution,
-the file system records on disk (e.g., in the super block) the inode inumber of
-a file whose link count drops to zero but whose reference count isn't zero.  If
-the file system removes the file when its reference counts reaches 0, then it
-updates the on-disk list by removing that inode from the list. On recovery, the
-file system frees any file in the list.
+2 つ目の解決法は，ファイルシステムをスキャンしなくても良い方法です．そ
+の解決法は，リンク数がゼロになったが，参照カウントがゼロになっていな
+いinode の i-number を，ディスク上に
+（たとえばスーパーブロックに）記録しておくというものです．もし，参照カ
+ウントがゼロになってそのファイルを削除したら，ファイルシステム
+はinode をそのディスク上のリストから削除します．復帰時には，そ
+のリストに載っているファイルを解放します．
 
-Xv6 implements neither solution, which means that inodes may be marked allocated
-on disk, even though they are not in use anymore.  This means that over time xv6
-runs the risk that it may run out of disk space.
+xv6 は，どちらの解放も実装しません．すなわち，ディスク上で使用中に
+なっているにもかかわらず，もう使われていないものがあるかもしれないとい
+うことです．それにより，xv6 には，時間が経つとともにディスクのスペースを使
+い切ってしまうというリスクがあります．
 %% 
 %% 
 %% 
-\section{Code: Inode content}
+\section{Code: inode の中身}
 
 \begin{figure}[t]
 \center
 \includegraphics[scale=0.5]{fig/inode.pdf}
-\caption{The representation of a file on disk.}
+ \caption{ディスク上でのファイルの表現} 
 \label{fig:inode}
 \end{figure}
 
-The on-disk inode structure,
-\indexcode{struct dinode},
-contains a size and an array of block numbers (see 
-Figure~\ref{fig:inode}).
-The inode data is found in the blocks listed
-in the
-\lstinline{dinode} 's
-\lstinline{addrs}
-array.
-The first
-\indexcode{NDIRECT}
-blocks of data are listed in the first
-\lstinline{NDIRECT}
-entries in the array; these blocks are called 
-\indextext{direct blocks}.
-The next 
-\indexcode{NINDIRECT}
-blocks of data are listed not in the inode
-but in a data block called the
-\indextext{indirect block}.
-The last entry in the
-\lstinline{addrs}
-array gives the address of the indirect block.
-Thus the first 12 kB (
-\lstinline{NDIRECT} 
-\lstinline{x}
-\indexcode{BSIZE})
-bytes of a file can be loaded from blocks listed in the inode,
-while the next
-\lstinline{256} kB (
-\lstinline{NINDIRECT}
-\lstinline{x}
-\lstinline{BSIZE})
-bytes can only be loaded after consulting the indirect block.
-This is a good on-disk representation but a 
-complex one for clients.
-The function
-\indexcode{bmap}
-manages the representation so that higher-level routines such as
-\indexcode{readi}
-and
-\indexcode{writei},
-which we will see shortly.
-\lstinline{Bmap}
-returns the disk block number of the
-\lstinline{bn}'th
-data block for the inode
-\lstinline{ip}.
-If
-\lstinline{ip}
-does not have such a block yet,
-\lstinline{bmap}
-allocates one.
 
-The function
-\indexcode{bmap}
-\lineref{kernel/fs.c:/^bmap/}
-begins by picking off the easy case: the first 
-\indexcode{NDIRECT}
-blocks are listed in the inode itself
-\linerefs{kernel/fs.c:/^..if.bn.<.NDIRECT/,/^..}/}.
-The next 
-\indexcode{NINDIRECT}
-blocks are listed in the indirect block at
-\lstinline{ip->addrs[NDIRECT]}.
-\lstinline{Bmap}
-reads the indirect block
-\lineref{kernel/fs.c:/bp.=.bread.ip->dev..addr/}
-and then reads a block number from the right 
-position within the block
-\lineref{kernel/fs.c:/a.=..uint\*.bp->data/}.
-If the block number exceeds
-\lstinline{NDIRECT}+NINDIRECT,
-\lstinline{bmap} 
-panics; 
-\lstinline{writei}
-contains the check that prevents this from happening
-\lineref{kernel/fs.c:/off...n...MAXFILE.BSIZE/}.
+ディスク上の inode である \texttt{dinode} 構造体は，サイズとブロック番
+号の配列を持ちます（図~\ref{fig:inode} を見てください）．その inodeのデー
+タは，\texttt{addrs} 配列が指すブロックに入っています．データの先
+頭 \indexcode{NDIRECT} ブロックは，その配列の先頭 \texttt{NDIRECT} 要素
+に入っています．それらは，直接ブロック (direct block) と呼ばれます．次
+の \indexcode{NINDIRECT} ブロックは，inode そのものではなく，間接ブロッ
+ク (indirect block)と呼ばれるデータブロックに入っていま
+す．\texttt{addrs} の最後のエントリには，\indextext{間接ブロック}のアド
+レスが入っています．よって，ファイルの先頭 12 kB
+(\texttt{NDIRECT}$\times$\indexcode{BSIZE}) は inode 内のリストからロー
+ドすることができ，その次の 256 kB
+(\texttt{NINDIRECT}$\times$\texttt{BSIZE})は，間接ブロックを調べたあと
+でロードする必要があります．これは，ディスク上の表現としては優れていま
+すが，利用者にとっては複雑です．\indexcode{bmap} という関数が，すぐあと
+に出てくる \indexcode{readi} や \indexcode{writei} などの高レベルのルー
+チンのために，その表現を管理をします．\texttt{bmap} は，inode を表
+す \texttt{ip} に対し，\texttt{bn} 番目のデータブロックのブロック番号を
+リターンします．もし \texttt{ip} がまだそのブロックを持たなけれ
+ば，\texttt{bmap} がアロケートします．
 
-\lstinline{Bmap}
-allocates blocks as needed.
-An
-\lstinline{ip->addrs[]}
-or indirect
-entry of zero indicates that no block is allocated.
-As
-\lstinline{bmap}
-encounters zeros, it replaces them with the numbers of fresh blocks,
-allocated on demand
-\linerefs{kernel/fs.c:/^....if..addr.=.*==.0/,/./}
-\linerefs{kernel/fs.c:/^....if..addr.*NDIRECT.*==.0/,/./}.
+\indexcode{bmap}~関数 \lineref{kernel/fs.c:/^bmap/} は
+簡単なケースからはじめます．すな
+わち，inode 自体に記録されている最初の \indexcode{NDIRECT} ブロッ
+クです \linerefs{kernel/fs.c:/^..if.bn.<.NDIRECT/,/^..}/}．次の \indexcode{NINDIRECT} ブロック
+は，\texttt{ip->addrs[NDIRECT]} の間接ブロックにありま
+す．\texttt{bmap} は間接ブロックを読み \lineref{kernel/fs.c:/bp.=.bread.ip->dev..addr/}，
+ブロック内の右側からブロック番号を読みます \lineref{kernel/fs.c:/a.=..uint\*.bp->data/}．
+もしブロック番号が \texttt{NDIRECT+NINDIRECT} を超えたら
+\texttt{bmap} はパニックを起こします．\texttt{writei} には，
+それを防ぐためのチェックがあります \lineref{kernel/fs.c:/off...n...MAXFILE.BSIZE/}.
 
-\indexcode{itrunc}
-frees a file's blocks, resetting the inode's size to zero.
-\lstinline{Itrunc}
-\lineref{kernel/fs.c:/^itrunc/}
-starts by freeing the direct blocks
-\linerefs{kernel/fs.c:/^..for.i.=.0.*NDIRECT/,/^..}/},
-then the ones listed in the indirect block
-\linerefs{kernel/fs.c:/^....for.j.=.0.*NINDIRECT/,/^....}/},
-and finally the indirect block itself
-\linerefs{kernel/fs.c:/^....bfree.*NDIRECT/,/./}.
+\texttt{bmap} は必要に応じてブロックをアロケートしま
+す．\texttt{ip->addrs[]} もしくは間接エントリがゼロであることが，ブロッ
+クがアロケートされていないことを示します．\texttt{bmap} はゼロ
+を，\texttt{demand} \linerefs{kernel/fs.c:/^....if..addr.=.*==.0/,/./}
+\linerefs{kernel/fs.c:/^....if..addr.*NDIRECT.*==.0/,/./} を用いて
+新しくアロケートしたブロックの番号に置き換えます．
 
-\lstinline{Bmap}
-makes it easy for
-\indexcode{readi}
-and
-\indexcode{writei} 
-to get at an inode's data.
-\lstinline{Readi}
-\lineref{kernel/fs.c:/^readi/}
-starts by
-making sure that the offset and count are not 
-beyond the end of the file.
-Reads that start beyond the end of the file return an error
-\linerefs{kernel/fs.c:/^..if.off.>.ip->size/,/./}
-while reads that start at or cross the end of the file 
-return fewer bytes than requested
-\linerefs{kernel/fs.c:/^..if.off.\+.n.>.ip->size/,/./}.
-The main loop processes each block of the file,
-copying data from the buffer into 
-\lstinline{dst}
-\linerefs{kernel/fs.c:/^..for.tot=0/,/^..}/}.
-%%  NOTE: It is very hard to write line references
-%%  for writei because so many of the lines are identical
-%%  to those in readi.  Luckily, identical lines probably
-%%  don't need to be commented upon.
-\indexcode{writei}
-\lineref{kernel/fs.c:/^writei/}
-is identical to
-\indexcode{readi},
-with three exceptions:
-writes that start at or cross the end of the file
-grow the file, up to the maximum file size
-\linerefs{kernel/fs.c:/^..if.off.\+.n.>.MAXFILE/,/./};
-the loop copies data into the buffers instead of out
-\lineref{kernel/fs.c:/memmove.*bp->data/};
-and if the write has extended the file,
-\indexcode{writei}
-must update its size
-\linerefs{kernel/fs.c:/^..if.n.>.0./,/^..}/}.
+\indexcode{itrunc} はファイルが含むブロックの解放を行い，
+その inode のサイズをゼロに戻します．
+\texttt{itrunc} \lineref{kernel/fs.c:/^itrunc/} は
+まず直接ブロックを解放し \linerefs{kernel/fs.c:/^..for.i.=.0.*NDIRECT/,/^..}/}，
+続いて間接ブロックに記載されたブロックを解放し \linerefs{kernel/fs.c:/^....for.j.=.0.*NINDIRECT/,/^....}/}，
+最後に間接ブロック自体を解放します　\linerefs{kernel/fs.c:/^....bfree.*NDIRECT/,/./}．
 
-Both
-\indexcode{readi}
-and
-\indexcode{writei}
-begin by checking for
-\lstinline{ip->type}
-\lstinline{==}
-\indexcode{T_DEV}.
-This case handles special devices whose data does not
-live in the file system; we will return to this case in the file descriptor layer.
+\texttt{bmap} のおかげで，\indexcode{readi} と \indexcode{writei} は簡単
+に inodeのデータを取得できます．
+\texttt{readi} \lineref{kernel/fs.c:/^readi/} はまず，
+オフセットとカウント数がファイルの終端を超え
+ないことを確認します．終端の先を開始点とする読み込みにはエラーをリター
+ンします \linerefs{kernel/fs.c:/^..if.off.>.ip->size/,/./}．
+一方，終端をまたぐ読み込みに対しては，
+要求よりも少ないバイト数をリターンします \linerefs{kernel/fs.c:/^..if.off.>.ip->size/,/./}．
+メイン
+ループはファイルの各ブロックをスキャンし，バッファの各データ
+を \texttt{dst} へコピーします \linerefs{kernel/fs.c:/^..for.tot=0/,/^..}/}．
+\indexcode{writei} \lineref{kernel/fs.c:/^writei/} は \indexcode{readi} と同じですが，3つ例外があります．終
+端をまたぐ書き込みでは（最大サイズになるまでは）ファイルサイズを拡張しま
+す \linerefs{kernel/fs.c:/^..if.off.\+.n.>.MAXFILE/,/./}．
+ループでは，\texttt{out} ではなくバッファにデー
+タをコピーします \lineref{kernel/fs.c:/memmove.*bp->data/}．もし書き込みがファイルを拡張した
+ら，\indexcode{writei} はそのサイズを更新します \linerefs{kernel/fs.c:/^..if.n.>.0./,/^..}/}．
 
-The function
-\indexcode{stati}
-\lineref{kernel/fs.c:/^stati\(/}
-copies inode metadata into the 
-\lstinline{stat}
-structure, which is exposed to user programs
-via the
-\indexcode{stat}
-system call.
+\indexcode{readi} と \indexcode{writei} は，まず \texttt{ip->type ==} \indexcode{T_DEV}
+のチェックをします．これは，データがファイルシステム内には無い特殊ファイルの場合です．
+このケースについては，ファイルディスクリプタ層のところでまた
+説明します．
+
+\indexcode{starti}~関数 \lineref{kernel/fs.c:/^stati\(/} は
+inode のメタデータ
+を\texttt{stat} 構造体へコピーします．ユーザプログラム
+は \indexcode{stat} システムコールを呼ぶことで，この構造体を見ることがで
+きます．
+
 %% 
 %% 
 %% 
-\section{Code: directory layer}
+\section{Code: ディレクトリ層}
 
-A directory is implemented internally much like a file.
-Its inode has type
-\indexcode{T_DIR}
-and its data is a sequence of directory entries.
-Each entry is a
-\indexcode{struct dirent}
-\lineref{kernel/fs.h:/^struct.dirent/},
-which contains a name and an inode number.
-The name is at most
-\indexcode{DIRSIZ}
-(14) characters;
-if shorter, it is terminated by a NUL (0) byte.
-Directory entries with inode number zero are free.
+ディレクトリは，内部的にはほとんどファイルです．ディレクトリ
+の inode は \indexcode{T_DIR} というタイプを持ち，その
+中身はディレクトリエントリが並んだものです．各エントリ
+は \indexcode{dirent} 構造体 \lineref{kernel/fs.h:/^struct.dirent/} で，名前
+と inode 番号を含みます．名前は最大で \indexcode{DIRSIZ} (14) 文
+字までです．それより短い場合はNUL (0) で終端します．inode 番号
+がゼロのディレクトリは未使用です．
 
-The function
-\indexcode{dirlookup}
-\lineref{kernel/fs.c:/^dirlookup/}
-searches a directory for an entry with the given name.
-If it finds one, it returns a pointer to the corresponding inode, unlocked,
-and sets 
-\lstinline{*poff}
-to the byte offset of the entry within the directory,
-in case the caller wishes to edit it.
-If
-\lstinline{dirlookup}
-finds an entry with the right name,
-it updates
-\lstinline{*poff}
-and returns an unlocked inode
-obtained via
-\indexcode{iget}.
-\lstinline{Dirlookup}
-is the reason that 
-\lstinline{iget}
-returns unlocked inodes.
-The caller has locked
-\lstinline{dp},
-so if the lookup was for
-\indexcode{.},
-an alias for the current directory,
-attempting to lock the inode before
-returning would try to re-lock
-\lstinline{dp}
-and deadlock.
-(There are more complicated deadlock scenarios involving
-multiple processes and
-\indexcode{..},
-an alias for the parent directory;
-\lstinline{.}
-is not the only problem.)
-The caller can unlock
-\lstinline{dp}
-and then lock
-\lstinline{ip},
-ensuring that it only holds one lock at a time.
+\indexcode{dirlookup}~関数 \lineref{kernel/fs.c:/^dirlookup/} は，指定された名前のファイル
+をディレクトリから探します．見つかったら，対応する（ロックされてい
+ない） inode へのポインタを返します．また，呼び出し側が編集す
+ることに備えて，\texttt{*poff} に，そのディレクトリ内のエントリへのバイ
+トオフセットをセットします．\texttt{dirlookup} が正しい名前のエントリを
+見つけたら，\texttt{*poff} を更新して，\indexcode{iget} で得たロックされて
+いない inode をリターンしま
+す．\texttt{iget} が inode をロックしないの
+は \texttt{dirlookup} のためです．呼び出し元がロックした \texttt{dp}
+を持っているので，もし探す対象がカレントディレクトリの別名である (\indexcode{.}) で
+あった場合，リターンする前に inode をロックしようとする
+と \texttt{dp} をさらにロックしようとしてデッドロックします（マルチプロ
+セスと親ディレクトリ（\indexcode{..}）に関連して，より入り組んだデッドロックのシナ
+リオがあります．カレントディレクトリだけが問題なのではありません）．
+呼び出し元は \texttt{dp} をアンロックしてから \texttt{ip} をロック
+することで，1 度に 1 つのロックしか取得しないことを保証できます．
 
-The function
-\indexcode{dirlink}
-\lineref{kernel/fs.c:/^dirlink/}
-writes a new directory entry with the given name and inode number into the
-directory
-\lstinline{dp}.
-If the name already exists,
-\lstinline{dirlink}
-returns an error
-\linerefs{kernel/fs.c:/Check.that.name.is.not.present/,/^..}/}.
-The main loop reads directory entries looking for an unallocated entry.
-When it finds one, it stops the loop early
-\linerefs{kernel/fs.c:/^....if.de.inum.==.0/,/./},
-with 
-\lstinline{off}
-set to the offset of the available entry.
-Otherwise, the loop ends with
-\lstinline{off}
-set to
-\lstinline{dp->size}.
-Either way, 
-\lstinline{dirlink}
-then adds a new entry to the directory
-by writing at offset
-\lstinline{off}
-\linerefs{kernel/fs.c:/^..strncpy/,/panic/}.
+\indexcode{dirlink}~関数 \lineref{kernel/fs.c:/^dirlink/} は，ディレクトリ \texttt{dp} に
+対し，名前と与えられた inode 番号を持つ新しいディレクトリエン
+トリを作ります．もしその名前がすでに存在したら，\texttt{dirlink} はエラーをリ
+ターンします \linerefs{kernel/fs.c:/Check.that.name.is.not.present/,/^..}/}．
+メインループはディレクトリエントリを
+スキャンして，未使用のエントリを探します．もし見つけたら，
+\texttt{off} にそのエントリのオフセットを記入してループを抜けます \linerefs{kernel/fs.c:/^....if.de.inum.==.0/,/./}．
+そうでない場合は，\texttt{off} に \texttt{dp->size} をセットして
+ループを終えます．いずれの場合でも，\texttt{dirlink} は \texttt{off} が指す場所に
+新しいエントリを付け足します \linerefs{kernel/fs.c:/^..strncpy/,/panic/}．
+
 %% 
 %% 
 %% 
-\section{Code: Path names}
+\section{Code: パス名}
 
-Path name lookup involves a succession of calls to
-\indexcode{dirlookup},
-one for each path component.
-\lstinline{Namei}
-\lineref{kernel/fs.c:/^namei/}
-evaluates 
-\lstinline{path}
-and returns the corresponding 
-\lstinline{inode}.
-The function
-\indexcode{nameiparent}
-is a variant: it stops before the last element, returning the 
-inode of the parent directory and copying the final element into
-\lstinline{name}.
-Both call the generalized function
-\indexcode{namex}
-to do the real work.
+パス名を探索するには，パスの各項目に対して何度も \indexcode{dirlookup} を呼ぶ必要があります．
+\texttt{namei} \lineref{kernel/fs.c:/^namei/} はパスを評価し，
+対応する inode をリターンします．\indexcode{nameiparent}~関数はその
+派生版で，最後の要素の一歩前で止め，親ディレクトリの inode をリターン
+するとともに，最後の要素を \texttt{name} に入れます．どちらの場合でも，より
+一般的な \indexcode{namex} 関数が実際の処理を行います．
 
-\lstinline{Namex}
-\lineref{kernel/fs.c:/^namex/}
-starts by deciding where the path evaluation begins.
-If the path begins with a slash, evaluation begins at the root;
-otherwise, the current directory
-\linerefs{kernel/fs.c:/..if.\*path.==....\)/,/idup/}.
-Then it uses
-\indexcode{skipelem}
-to consider each element of the path in turn
-\lineref{kernel/fs.c:/while.*skipelem/}.
-Each iteration of the loop must look up 
-\lstinline{name}
-in the current inode
-\lstinline{ip}.
-The iteration begins by locking
-\lstinline{ip}
-and checking that it is a directory.
-If not, the lookup fails
-\linerefs{kernel/fs.c:/^....ilock.ip/,/^....}/}.
-(Locking
-\lstinline{ip}
-is necessary not because 
-\lstinline{ip->type}
-can change underfoot—it can't—but because
-until 
-\indexcode{ilock}
-runs,
-\lstinline{ip->type}
-is not guaranteed to have been loaded from disk.)
-If the call is 
-\indexcode{nameiparent}
-and this is the last path element, the loop stops early,
-as per the definition of
-\lstinline{nameiparent};
-the final path element has already been copied
-into
-\lstinline{name},
-so
-\indexcode{namex}
-need only
-return the unlocked
-\lstinline{ip}
-\linerefs{kernel/fs.c:/^....if.nameiparent/,/^....}/}.
-Finally, the loop looks for the path element using
-\indexcode{dirlookup}
-and prepares for the next iteration by setting
-\lstinline{ip = next}
-\linerefs{kernel/fs.c:/^....if..next.*dirlookup/,/^....ip.=.next/}.
-When the loop runs out of path elements, it returns
-\lstinline{ip}.
+\texttt{namex} \lineref{kernel/fs.c:/^namex/} はまず，
+パス評価の起点を決めます．もし
+パスの先頭がスラッシュなら，評価はルートディレクトリから始めます．そう
+でない場合はカレントディレクトリで
+す \linerefs{kernel/fs.c:/..if.\*path.==....\)/,/idup/}．
+\texttt{namex} は次に，\indexcode{skipelem} を用
+いて，パスの各要素を順に調べていきます \lineref{kernel/fs.c:/while.*skipelem/}．
+ループの各く
+り返しでは，今調べている inode であ
+る \texttt{ip} から \texttt{name} を探します．探すにはまず \texttt{ip}
+をロックし，それがディレクトリかどうかを調べます．そうでなければ探索失
+敗です \linerefs{kernel/fs.c:/^....ilock.ip/,/^....}/}（\texttt{ip} をロックする必要があるの
+は，\texttt{ip->type} を変更するからではありません（変更できません
+）．\indexcode{ilock} が走るまで，\texttt{ip->type} がディスクからロードさ
+れているとは限らないからです）．もしそれが \indexcode{nameiparent} で
+パスの最後の要素であれば，\texttt{nameiparent} の定義の通り，そこでルー
+プを抜けます．最後の要素はすでに \texttt{name} にコピーされているの
+で，\indexcode{namex} は単にロックを解除した\texttt{ip} 
+\linerefs{kernel/fs.c:/^....if.nameiparent/,/^....}/} を返します．そのループは最後に，その要素
+を \indexcode{dirlookup} で探し，\texttt{ip = next} 
+\linerefs{kernel/fs.c:/^....if..next.*dirlookup/,/^....ip.=.next/} 
+とすることで次のくり返しの準備をします．ループがパス名の最後までいった
+ら，\texttt{namex} は \texttt{ip} をリターンします．
 
-The procedure
-\lstinline{namex}
-may take a long time to complete: it could involve several disk operations to
-read inodes and directory blocks for the directories traversed in the pathname
-(if they are not in the buffer cache).  Xv6 is carefully designed so that if an
-invocation of
-\lstinline{namex}
-by one kernel thread is blocked on a disk I/O, another kernel thread looking up
-a different pathname can proceed concurrently.
-\lstinline{Namex}
-locks each directory in the path separately so that lookups in different
-directories can proceed in parallel.
+\texttt{namex} には長い時間がかかることがあります．パス名を解
+決するために訪れる複数のディレクトリに対し，inode とディレクリ
+ブロックを取得するために，（バッファキャッシュに入っていない場合）何度
+もディスクのオペレーションを行う必要があるからです．xv6 は注意深く設計され
+ており，もし，あるカーネルスレッドの \texttt{namex} がディスク I/O でブ
+ロックしていたら，別のパス名を探している別のカーネルスレッドが並行して
+進むことができます．\texttt{namex} はパス上にあるディレクトリを別々にロッ
+クするので，別ディレクトリの探索は並行して行うことができるのです．
 
-This concurrency introduces some challenges. For example, while one kernel
-thread is looking up a pathname another kernel thread may be changing the
-directory tree by unlinking a directory.  A potential risk is that a lookup
-may be searching a directory that has been deleted by another kernel thread and
-its blocks have been re-used for another directory or file.
+そのような並列処理ができることで，いくつかの新たな課題が生じます．た
+とえば，あるカーネルスレッドがパス名を探索しているあいだ，別のカーネル
+スレッドがあるディレクトリをアンリンクすることで，ディレクトリツリーが
+変わってしまうことがありえます．それにより，すでに消去されたディレクト
+リを探してしまう潜在的な危険性があります．その消去されたディレクトリの
+ブロックは，別にディレクトリやファイルに再利用されている可能性がありま
+す．
 
-Xv6 avoids such races.  For example, when executing
-\lstinline{dirlookup}
-in
-\lstinline{namex},
-the lookup thread holds the lock on the directory and
-\lstinline{dirlookup}
-returns an inode that was obtained using
-\lstinline{iget}.
-\lstinline{Iget}
-increases the reference count of the inode.  Only after receiving the
-inode from
-\lstinline{dirlookup}
-does
-\lstinline{namex}
-release the lock on the directory.  Now another thread may unlink the inode from
-the directory but xv6 will not delete the inode yet, because the reference count
-of the inode is still larger than zero.
+xv6 ではそのような競合は起きません．たとえ
+ば，\texttt{namex} が \texttt{dirlookup} を実行しているあいだ，探索をし
+ているスレッドはそのディレクトリのロックを所持するととも
+に，\texttt{dirlookup} は \texttt{iget} で取得した inode をリ
+ターンします．\texttt{iget} は，inode の参照カウントを増加させ
+ます．\texttt{namex} がそのディレクトリのロックを解放するの
+は，\texttt{dirlookup} から inode を受け取ったあとに限ります．
+別スレッドがその inode をディレクトリからアンリンクする可能性
+がありますが，その inode の参照カウントはゼロより大きいの
+で，xv6 がその inode を削除することはありません．
 
-Another risk is deadlock.  For example,
-\lstinline{next}
-points to the same inode as
-\lstinline{ip}
-when looking up ".".
-Locking
-\lstinline{next}
-before releasing the lock on
-\lstinline{ip}
-would result in a deadlock.
-To avoid this deadlock,
-\lstinline{namex}
-unlocks the directory before obtaining a lock on
-\lstinline{next}.
-Here again we see why the separation between
-\lstinline{iget}
-and
-\lstinline{ilock}
-is important.
+別のリスクはデッドロックです．たとえば，「\texttt{.}」を探索すると
+き，\texttt{next} は \texttt{ip} と同じ inode を指す可能性があ
+ります．\texttt{ip} のロックを解放する前に \texttt{next} をロックしよう
+とするとデッドロックが起きます．このデッドロックを避けるため
+に，\texttt{namex} は \texttt{next} のロックの取得前にそのディレクト
+リをアンロックします．それもまた，\texttt{iget} と \texttt{ilock} を分
+けておく重要な理由です．
+
 %% 
 %% 
 %% 
-\section{File descriptor layer}
+\section{ファイルディスクリプタ層}
 
-A cool aspect of the Unix interface is that most resources in Unix are
-represented as files, including devices such as the console, pipes, and of
-course, real files.  The file descriptor layer is the layer that achieves this
-uniformity.
+Unix のインタフェースのかっこいいところは，ほぼ全てのリソースがファイル
+として表現されるところです．コンソールなどのデバイス，パイプ，そし
+てもちろん本物のファイルなどです．その一貫性をもたらすのがファイルディ
+スクリプタ層です．
 
-Xv6 gives each process its own table of open files, or
-file descriptors, as we saw in
-Chapter~\ref{CH:UNIX}.
-Each open file is represented by a
-\indexcode{struct file}
-\lineref{kernel/file.h:/^struct.file/},
-which is a wrapper around either an inode or a pipe,
-plus an I/O offset.
-Each call to 
-\indexcode{open}
-creates a new open file (a new
-\lstinline{struct}
-\lstinline{file}):
-if multiple processes open the same file independently,
-the different instances will have different I/O offsets.
-On the other hand, a single open file
-(the same
-\lstinline{struct}
-\lstinline{file})
-can appear
-multiple times in one process's file table
-and also in the file tables of multiple processes.
-This would happen if one process used
-\lstinline{open}
-to open the file and then created aliases using
-\indexcode{dup}
-or shared it with a child using
-\indexcode{fork}.
-A reference count tracks the number of references to
-a particular open file.
-A file can be open for reading or writing or both.
-The
-\lstinline{readable}
-and
-\lstinline{writable}
-fields track this.
+\ref{CH:UNIX}~章で見たように，xv6 は，プロセスごとに開いたファイルのテーブル，すなわ
+ちファイルディスクリプタを与えます．開いたファイルは，それぞ
+れ \indexcode{file} \lineref{kernel/file.h:/^struct.file/} で表現されます．この構造体
+は，inode もしくはパイプをくるんで I/O オフセットを付け加えた
+ものです．\indexcode{open} を呼びだすと，そのたびに開いたファイル（新し
+い \texttt{file} 構造体）が作られます．複数のプロセスが独立に同じファイ
+ルを \texttt{open} すると，それぞれが異なる I/O オフセットを持ちます．
+一方，同一の開いたファイル（すなわち同一の \texttt{file} 構造体）は，あ
+る1つのプロセスのファイルテーブルに複数回現れたり，複数のプロセスに現れ
+ることができます．そのようなことが起きるのは，あるプロセス
+が \texttt{open} を用いてファイルを開いたあとで\indexcode{dup} で別名を作っ
+たり，\indexcode{fork} で子プロセスを作って共有したりした場合です．参照カ
+ウントが，特定の開いたファイルへの参照数を管理します．ファイルは，読み，
+書き，あるは両方のために開くことができます．それ
+は \texttt{readable} と \texttt{writable} フィールドが管理します．
 
-All the open files in the system are kept in a global file table,
-the 
-\indexcode{ftable}.
-The file table
-has functions to allocate a file
-(\indexcode{filealloc}),
-create a duplicate reference
-(\indexcode{filedup}),
-release a reference
-(\indexcode{fileclose}),
-and read and write data
-(\indexcode{fileread}
-and 
-\indexcode{filewrite}).
+システム内のオープン済みファイルは，グローバルファイルテーブ
+ル\indexcode{ftable} に入ります．このファイルテーブルはファイルをアロケート
+するための関数 (\indexcode{filealloc})，参照を作ったり複製する関
+数 (\indexcode{filedup})，参照を解放するための関数 (\indexcode{fileclose})，
+および読み書きするための関数 (\indexcode{fileread} と \indexcode{filewrite})
+があります．
 
-The first three follow the now-familiar form.
-\lstinline{Filealloc}
-\lineref{kernel/file.c:/^filealloc/}
-scans the file table for an unreferenced file
-(\lstinline{f->ref}
-\lstinline{==}
-\lstinline{0})
-and returns a new reference;
-\indexcode{filedup}
-\lineref{kernel/file.c:/^filedup/}
-increments the reference count;
-and
-\indexcode{fileclose}
-\lineref{kernel/file.c:/^fileclose/}
-decrements it.
-When a file's reference count reaches zero,
-\lstinline{fileclose}
-releases the underlying pipe or inode,
-according to the type.
+先の3つは，今や見慣れたかたちをしています．\texttt{filealloc}
+\lineref{kernel/file.c:/^filealloc/} はファイルテーブルをスキャンして参照のないファイ
+ル\texttt{(f->ref == 0)} を探し，新しい参照をリターンしま
+す．\indexcode{filedup} \lineref{kernel/file.c:/^filedup/} は
+参照カウントを増加さ
+せ，\indexcode{fileclose} \lineref{kernel/file.c:/^fileclose/} は
+減少させます．ファイルの参
+照カウントがゼロに達したら，\texttt{fileclose} は\texttt{type} に応じて
+パイプもしくは inode を解放します．
 
-The functions
-\indexcode{filestat},
-\indexcode{fileread},
-and
-\indexcode{filewrite}
-implement the 
-\indexcode{stat},
-\indexcode{read},
-and
-\indexcode{write}
-operations on files.
-\lstinline{Filestat}
-\lineref{kernel/file.c:/^filestat/}
-is only allowed on inodes and calls
-\indexcode{stati}.
-\lstinline{Fileread}
-and
-\lstinline{filewrite}
-check that the operation is allowed by
-the open mode and then
-pass the call through to either
-the pipe or inode implementation.
-If the file represents an inode,
-\lstinline{fileread}
-and
-\lstinline{filewrite}
-use the I/O offset as the offset for the operation
-and then advance it
-\linerefs{kernel/file.c:/readi/,/./}
-\linerefs{kernel/file.c:/writei/,/./}.
-Pipes have no concept of offset.
-Recall that the inode functions require the caller
-to handle locking
-\linerefs{kernel/file.c:/stati/-1,/iunlock/}
+\indexcode{filestat}, \indexcode{fileread} および \indexcode{filewrite} 関数が，
+ファイルへの \indexcode{stat}, \indexcode{read}, およ
+び \indexcode{write} の処理をそれぞれ実装します．\texttt{filestat}
+\lineref{kernel/file.c:/^filestat/} は inode に対してのみ使用可能
+で，\indexcode{starti} を呼び出します．\texttt{fileread} と \texttt{filewrite} は，そ
+の処理が \texttt{open} 時のモードによって許可されているかどうかをチェッ
+クし，パイプあるいは inode 用の実装につなぎます．
+もしファイルが inode を表すのであれ
+ば，\texttt{fileread} と \texttt{filewrite} は I/O オフセットをその処理
+のオフセットとして用い，そのあとに増加させます \linerefs{kernel/file.c:/readi/,/./}
+\linerefs{kernel/file.c:/writei/,/./}．
+パイプにはオフセットという概念はありません．inode の関数では，
+呼び出し元がロックを管理しなくてはいけないのでし
+た \linerefs{kernel/file.c:/stati/-1,/iunlock/}
 \linerefs{kernel/file.c:/readi/-1,/iunlock/}
-\linerefs{kernel/file.c:/writei\(f/-1,/iunlock/}.
-The inode locking has the convenient side effect that the
-read and write offsets are updated atomically, so that
-multiple writing to the same file simultaneously
-cannot overwrite each other's data, though their writes may end up interlaced.
+\linerefs{kernel/file.c:/writei\(f/-1,/iunlock/}．
+inode のロックには便利な副作用があ
+り，読み書きのオフセットが自動で更新されます．
+そのため，同一ファイルへの同時書きこみがお互いを上書きすることはありません．
+ただし，両者は混ざってしまいます．
+
 %% 
 %% 
 %% 
-\section{Code: System calls}
+\section{Code: システムコール}
 
-With the functions that the lower layers provide the implementation of most
-system calls is trivial
-(see
-\fileref{kernel/sysfile.c}).
-There are a few calls that
-deserve a closer look.
+低レイヤが提供する関数のおかげで，ほとんどシステムコールの実装は単純です
+（\fileref{kernel/sysfile.c} を見てください）．ただし，いくつかのシステムコールは
+よく見る価値があります．
 
-The functions
-\indexcode{sys_link}
-and
-\indexcode{sys_unlink}
-edit directories, creating or removing references to inodes.
-They are another good example of the power of using 
-transactions. 
-\lstinline{Sys_link}
-\lineref{kernel/sysfile.c:/^sys_link/}
-begins by fetching its arguments, two strings
-\lstinline{old}
-and
-\lstinline{new}
-\lineref{kernel/sysfile.c:/argstr.*old.*new/}.
-Assuming 
-\lstinline{old}
-exists and is not  a directory
-\linerefs{kernel/sysfile.c:/namei.old/,/^..}/},
-\lstinline{sys_link}
-increments its 
-\lstinline{ip->nlink}
-count.
-Then
-\lstinline{sys_link}
-calls
-\indexcode{nameiparent}
-to find the parent directory and final path element of
-\lstinline{new} 
-\lineref{kernel/sysfile.c:/nameiparent.new/}
-and creates a new directory entry pointing at
-\lstinline{old} 's
-inode
-\lineref{kernel/sysfile.c:/\|\| dirlink/}.
-The new parent directory must exist and
-be on the same device as the existing inode:
-inode numbers only have a unique meaning on a single disk.
-If an error like this occurs, 
-\indexcode{sys_link}
-must go back and decrement
-\lstinline{ip->nlink}.
+\indexcode{sys_link} 関数と \indexcode{sys_unlink} 関数はディレクトリを編集
+することで，inode への参照を作ったり削除したりします．これも，
+トランザクションの威力が分かる良い例です．\texttt{sys\_link}
+\lineref{kernel/sysfile.c:/^sys_link/} はまず，2つ引数である文字
+列 \texttt{old} と \texttt{new} を取得します \lineref{kernel/sysfile.c:/argstr.*old.*new/}．
+\texttt{old} は存在して，かつディレクトリでは無いものとしま
+す \linerefs{kernel/sysfile.c:/namei.old/,/^..}/}．\texttt{sys\_link} は\texttt{ip->nlink}の
+カウント値を増加させます．\texttt{sys\_link} は続い
+て \indexcode{nameiparent} を呼び，\texttt{new} の親ディレクトリとパスの最
+後の要素を得ます \lineref{kernel/sysfile.c:/nameiparent.new/}．そのあ
+と，\texttt{old} の inode を指す新しいディレクトリエントリを作
+ります \lineref{kernel/sysfile.c:/\|\| dirlink/}．新しい親ディレクトリは存在しなくてはな
+らず，かつ既存の inode と同じデバイス上になくてはなりませ
+ん．inode 番号は，同一のデバイス上においてのみユニークだからで
+す．そのようなエラーが起きたら, \indexcode{sys_link} は逆戻りし
+て\texttt{ip->nlink} を減少させます．
 
-Transactions simplify the implementation because it requires updating multiple
-disk blocks, but we don't have to worry about the order in which we do
-them. They either will all succeed or none.
-For example, without transactions, updating
-\lstinline{ip->nlink}
-before creating a link, would put the file system temporarily in an unsafe
-state, and a crash in between could result in havoc.
-With transactions we don't have to worry about this.
+複数ブロックにまたがる更新をするときに，その実行順序を気にしなくてよく
+なるという意味で，トランザクションは実装を単純にします．トランザクショ
+ンは，全部が成功するか，まったく成功しないかのいずれかです．もしトラン
+ザクションがなければ，リンクを作るまえに\texttt{ip->nlink} を更新すると，
+ファイルシステムは一時的に安全ではない状態になります．その間にクラッシュ
+が起きたら大惨事です．そのことを気にしなくてもよいのは，トランザクショ
+ンがあるからです．
 
-\lstinline{Sys_link}
-creates a new name for an existing inode.
-The function
-\indexcode{create}
-\lineref{kernel/sysfile.c:/^create/}
-creates a new name for a new inode.
-It is a generalization of the three file creation
-system calls:
-\indexcode{open}
-with the
-\indexcode{O_CREATE}
-flag makes a new ordinary file,
-\indexcode{mkdir}
-makes a new directory,
-and
-\indexcode{mkdev}
-makes a new device file.
-Like
-\indexcode{sys_link},
-\indexcode{create}
-starts by caling
-\indexcode{nameiparent}
-to get the inode of the parent directory.
-It then calls
-\indexcode{dirlookup}
-to check whether the name already exists
-\lineref{kernel/sysfile.c:/dirlookup.*[^=]=.0/}.
-If the name does exist, 
-\lstinline{create}'s
-behavior depends on which system call it is being used for:
-\lstinline{open}
-has different semantics from 
-\indexcode{mkdir}
-and
-\indexcode{mkdev}.
-If
-\lstinline{create}
-is being used on behalf of
-\lstinline{open}
-(\lstinline{type}
-\lstinline{==}
-\indexcode{T_FILE})
-and the name that exists is itself
-a regular file,
-then 
-\lstinline{open}
-treats that as a success,
-so
-\lstinline{create}
-does too
-\lineref{kernel/sysfile.c:/^......return.ip/}.
-Otherwise, it is an error
-\linerefs{kernel/sysfile.c:/^......return.ip/+1,/return.0/}.
-If the name does not already exist,
-\lstinline{create}
-now allocates a new inode with
-\indexcode{ialloc}
-\lineref{kernel/sysfile.c:/ialloc/}.
-If the new inode is a directory, 
-\lstinline{create}
-initializes it with
-\indexcode{.}
-and
-\indexcode{..}
-entries.
-Finally, now that the data is initialized properly,
-\indexcode{create}
-can link it into the parent directory
-\lineref{kernel/sysfile.c:/if.dirlink/}.
-\lstinline{Create},
-like
-\indexcode{sys_link},
-holds two inode locks simultaneously:
-\lstinline{ip}
-and
-\lstinline{dp}.
-There is no possibility of deadlock because
-the inode
-\lstinline{ip}
-is freshly allocated: no other process in the system
-will hold 
-\lstinline{ip} 's
-lock and then try to lock
-\lstinline{dp}.
+\texttt{sys\_link} は，既存の inode に新しい名前をつけま
+す．\indexcode{create} 関数 \lineref{kernel/sysfile.c:/^create/} は，新し
+い inode に新しい名前をつけます．これは，ファイルを作る 3 つの
+システムコールを一般化したものです．すなわち，新しい通常ファイルを作
+る \indexcode{O_CREATE} フラグ付きの \texttt{open}, 新しいディレクトリを
+作る \indexcode{mkdir}，および新しいデバイスファイルを作る \indexcode{mkdev}
+です．\indexcode{sys_link} と同様に，\indexcode{create} はま
+ず \texttt{nameiparent} を呼び，親ディレクトリの inode を得ま
+す．\texttt{create} は続いて \indexcode{dirlookup} を呼び，その名前がすで
+に存在するかどうかをチェックします \lineref{kernel/sysfile.c:/dirlookup.*[^=]=.0/}．もし存在した
+ときの処理は，\texttt{create} を呼び出したシステムコールによりま
+す．\indexcode{open} は，\indexcode{mkdir}・\indexcode{mkdev} とは異なる意味
+を持ちます．もしその \texttt{create} が \texttt{open} のために呼び出さ
+れたものであり (\texttt{type ==} \indexcode{T_FILE})，かつ既存のファイルが通常のファ
+イルであれば，\texttt{open} はこれを成功とみなすので，\texttt{create}も
+同様にします \lineref{kernel/sysfile.c:/^......return.ip/}．それ以外では，重複するファイル名は
+エラーです \linerefs{kernel/sysfile.c:/^......return.ip/+1,/return.0/}. もしその名前が使用済みでなけれ
+ば，\texttt{create} は \indexcode{ialloc} \lineref{kernel/sysfile.c:/ialloc/} を用いて新しい inode をアロケート
+します．もし新しい inode がディレクトリであれ
+ば，\indexcode{.} と \indexcode{..} のエントリで初期化します．ここまででデー
+タが正しく初期化されたので，\indexcode{create} はそれを親ディレクトリにリ
+ンクします \lineref{kernel/sysfile.c:/if.dirlink/}．\texttt{create} は，\indexcode{sys_link} と同様
+に，2 つの inode のロック \texttt{ip} と \texttt{dp} を同時に取得します
+が，デッドロックの危険はありません．\texttt{ip} は今まさに取得したもの
+であるため，他のプロセスが \texttt{ip} のロックを取得した上
+で \texttt{dp} をロックしようとすることはありえないからです．
 
-Using
-\lstinline{create},
-it is easy to implement
-\indexcode{sys_open},
-\indexcode{sys_mkdir},
-and
-\indexcode{sys_mknod}.
-\lstinline{Sys_open}
-\lineref{kernel/sysfile.c:/^sys_open/}
-is the most complex, because creating a new file is only
-a small part of what it can do.
-If
-\indexcode{open}
-is passed the
-\indexcode{O_CREATE}
-flag, it calls
-\lstinline{create}
-\lineref{kernel/sysfile.c:/create.*T_FILE/}.
-Otherwise, it calls
-\indexcode{namei}
-\lineref{kernel/sysfile.c:/if..ip.=.namei.path/}.
-\lstinline{Create}
-returns a locked inode, but 
-\lstinline{namei}
-does not, so
-\indexcode{sys_open}
-must lock the inode itself.
-This provides a convenient place to check that directories
-are only opened for reading, not writing.
-Assuming the inode was obtained one way or the other,
-\lstinline{sys_open}
-allocates a file and a file descriptor
-\lineref{kernel/sysfile.c:/filealloc.*fdalloc/}
-and then fills in the file
-\linerefs{kernel/sysfile.c:/type.=.FD_INODE/,/writable/}.
-Note that no other process can access the partially initialized file since it is only
-in the current process's table.
+\texttt{create} を使うと，\indexcode{sys_open}, \indexcode{sys_mkdir}, およ
+び \indexcode{sys_mknod} は簡単に実装できます．\texttt{sys\_open}
+\lineref{kernel/sysfile.c:/^sys_open/} がもっとも複雑なのは，ファイルを作る以外の仕事
+もするからです．\indexcode{O_CREATE} フラグ付きで \indexcode{open} が呼
+び出されると，\texttt{open} は \texttt{create} を呼び出しま
+す \lineref{kernel/sysfile.c:/create.*T_FILE/}．そうでない場合，
+\texttt{open} は \indexcode{namei} を呼びま
+す \lineref{kernel/sysfile.c:/if..ip.=.namei.path/}．\texttt{create} はロックされ
+た inodeをリターンしますが，\texttt{namei} はそうではありませ
+ん．そのため，inode 自体のロックは \texttt{sys\_open} が行わな
+くてはなりません．\indexcode{sys_open} は，ディレクトリが書き込みでなく読み込み用に開か
+れることチェックする良い場所です．inode を何らかの方法で得た
+ら，\texttt{sys\_open} はファイルおよびファイルディスクリプタをアロケー
+トし \lineref{kernel/sysfile.c:/filealloc.*fdalloc/}，ファイルの中身を書き込みま
+す \linerefs{kernel/sysfile.c:/type.=.FD_INODE/,/writable/}．なお，初期化途中のファ
+イルは現在のプロセスのテーブルにしか入っていないので，他のプロセ
+スがアクセスすることはありえません．
 
-Chapter~\ref{CH:SCHED} examined the implementation of pipes
-before we even had a file system.
-The function
-\indexcode{sys_pipe}
-connects that implementation to the file system
-by providing a way to create a pipe pair.
-Its argument is a pointer to space for two integers,
-where it will record the two new file descriptors.
-Then it allocates the pipe and installs the file descriptors.
+
+\ref{CH:SCHED}~章では，ファイルシステムに知る前にパイプの実装を見まし
+た．\indexcode{sys_pipe} 関数は，パイプのペアをつくることで，その実装とファ
+イルシステムをつなげます．引数は整数 2 つ分の領域へのポインタです．
+\texttt{sys\_pipe} 関数はパイプをアロケートし，ファイルディスクリ
+プタを引数の領域に書き込みます．
+
 %% 
 %%  -------------------------------------------
 %% 
-\section{Real world}
+\section{世の中のオペレーティングシステム}
 
-The buffer cache in a real-world operating system is significantly
-more complex than xv6's, but it serves the same two purposes:
-caching and synchronizing access to the disk.
-Xv6's buffer cache, like V6's, uses a simple least recently used (LRU)
-eviction policy; there are many more complex
-policies that can be implemented, each good for some
-workloads and not as good for others.
-A more efficient LRU cache would eliminate the linked list,
-instead using a hash table for lookups and a heap for LRU evictions.
-Modern buffer caches are typically integrated with the
-virtual memory system to support memory-mapped files.
+世の中のオペレーティングシステムのバッファキャッシュは，xv6 のものより
+もはるかに複雑です．しかし目的は同じで，ディスクアクセスをキャッ
+シュすることと同期化することです．xv6 のバッファキャッシュは V6 
+と同じで，単純な LRU 
+の立ち退きポリシーを採用しています．より複雑なポリシーがたくさんありえ，
+ある種の負荷に特化した性能を持ちます．より効率的な LRU キャッシュは，最
+も使われていないものを探し，かつヒープを維持するために，リンクリストで
+はなくハッシュテーブルを使います．現代的なバッファキャッシュは，メモリ
+にマップされたファイルをサポートするために，仮想メモリシステムと統合さ
+れています．
 
-Xv6's logging system is inefficient.
-A commit cannot occur concurrently with file-system system calls.
-The system logs entire blocks, even if
-only a few bytes in a block are changed. It performs synchronous
-log writes, a block at a time, each of which is likely to require an
-entire disk rotation time. Real logging systems address all of these
-problems.
+xv6 のロギングシステムは非効率です．まず，ファイルシステム系のシステム
+コールと並行してコミットを行うことができません．また，あるブロックにお
+ける変更が数バイトしか無い場合でも，システムはブロック全体のログをとり
+ます．1 ブロックずつ同期的にログ書き込みを行いますので，それぞれ
+ごとに，ディスク 1 周分の時間がかかる可能性があります．世の中のロギング
+システムは以上の問題を解決しています．
 
-Logging is not the only way to provide crash recovery. Early file systems
-used a scavenger during reboot (for example, the UNIX
-\indexcode{fsck}
-program) to examine every file and directory and the block and inode
-free lists, looking for and resolving inconsistencies. Scavenging can take
-hours for large file systems, and there are situations where it is not
-possible to resolve inconsistencies in a way that causes the original
-system calls to be atomic. Recovery
-from a log is much faster and causes system calls to be atomic
-in the face of crashes.
+ロギングだけがクラッシュリカバリの方法ではありません．初期のファイルシス
+テムは，再起動時にスカベンジング（ゴミ漁り，たとえ
+ば，Unix の \indexcode{fsck}）をして，全ファイル・ディレクトリ・ブロッ
+ク・inode の自由リストを調べ，一貫性がない部分を解決していまし
+た．大きいファイルシステムでは，スカベンジングには何時間もかかり，かつ
+一貫性のない箇所を（システムコールがアトミックであるかのようには）修
+正できない場合がありました．ログを用いた復帰ははるかに速く，クラッシュ時
+にシステムコールをアトミックにできます．
 
-Xv6 uses the same basic on-disk layout of inodes and directories
-as early UNIX;
-this scheme has been remarkably persistent over the years.
-BSD's UFS/FFS and Linux's ext2/ext3 use essentially the same data structures.
-The most inefficient part of the file system layout is the directory,
-which requires a linear scan over all the disk blocks during each lookup.
-This is reasonable when directories are only a few disk blocks,
-but is expensive for directories holding many files.
-Microsoft Windows's NTFS, Mac OS X's HFS, and Solaris's ZFS, just to name a few, implement
-a directory as an on-disk balanced tree of blocks.
-This is complicated but guarantees logarithmic-time directory lookups.
+xv6 は，inode とディレクトリを配置するのに，初期の Unix と同様
+の基本的なディスク上のレイアウトを用います．この方法は何年ものあいだ，
+驚くほど維持されてきました．BSD の UFS/FFS および Linux の ext2/ext3 も，
+本質的には同じデータ構造を持ちます．ファイルシステムのレイアウトにおい
+てもっとも非効率な部分はディレクトリです．各探索において，全てのディスクブ
+ロックを線形にスキャンしなくてはならないからです．ディレクトリ
+が数ブロックしかないときはリーズナブルですが，大量のファイルを持つディ
+レクトリでは高コストになりえます．少なくと
+も，Microsoft Windows の NTFS，Mac OS X の HFS，そして Solaris の ZFSな
+どは，ディスク上のバランスしたブロックのツリーとしてディレクトリを実装
+します．これは複雑な方法ですが，ディレクトリ探索が対数時間で終わること
+を保証してくれます．
 
-Xv6 is naive about disk failures: if a disk
-operation fails, xv6 panics.
-Whether this is reasonable depends on the hardware:
-if an operating systems sits atop special hardware that uses
-redundancy to mask disk failures, perhaps the operating system
-sees failures so infrequently that panicking is okay.
-On the other hand, operating systems using plain disks
-should expect failures and handle them more gracefully,
-so that the loss of a block in one file doesn't affect the
-use of the rest of the file system.
+xv6 はディスクのフェイルに対してナイーブです．もしディスクのオペレーションが
+フェイルしたら xv6 はパニックになります．これがリーズナブルかどうかはハード
+ウェアによります．もし，オペレーティングシステムが乗っているのが，ディ
+スクのフェイルを吸収できる冗長性を備えた特別なハードウェアであれば，オペレー
+ティングシステムがフェイルに出会うのは稀なので，パニックになっても大丈夫でしょ
+う．一方で，通常のディスクを使うオペレーティングシステムは，フェイルを見越
+してより穏やかな方法で処理し，ファイルの1ブロックの欠けがシステ
+ム全体に波及しないようにすべきです．
 
-Xv6 requires that the file system
-fit on one disk device and not change in size.
-As large databases and multimedia files drive storage
-requirements ever higher, operating systems are developing ways
-to eliminate the ``one disk per file system'' bottleneck.
-The basic approach is to combine many disks into a single
-logical disk.  Hardware solutions such as RAID are still the 
-most popular, but the current trend is moving toward implementing
-as much of this logic in software as possible.
-These software implementations typically 
-allow rich functionality like growing or shrinking the logical
-device by adding or removing disks on the fly.
-Of course, a storage layer that can grow or shrink on the fly
-requires a file system that can do the same: the fixed-size array
-of inode blocks used by xv6 would not work well
-in such environments.
-Separating disk management from the file system may be
-the cleanest design, but the complex interface between the two
-has led some systems, like Sun's ZFS, to combine them.
+xv6 は，ファイルシステムが単一のディスクデバイスに収まっており，かつサ
+イズが変わらないと想定します．大きなデータベースやマルチメディアにおける
+大容量化への要求は増すばかりなので，オペレーティングシステムは「1ディス
+ク1ファイルシステム」というボトルネックを解消するように発展しています．
+基本的なアプローチは，複数のディスクを組み合わせて単一の論理的なディス
+クにすることです．RAID などのハードウェア的な方法が現在でも一般的ですが，
+そのための機能をできるだけソフトウェアで実現する方向にトレンドは向かっ
+ています．そのようなソフトウェア実装は，通常，ディスクをその場で足した
+り減らしたりすることで，論理的なデバイスを大きくしたり小さくしたりする
+リッチな機能を持ちます．ストレージ層がその場で大きくなったり
+小さくなったりするのであれば，ファイルシステムも同じことができなくては
+なりません．固定長配列に inode ブロックを入れる xv6 の方法は，
+そのような環境では使うことができません．ディスクの管理とファイルシステ
+ムを分離することがもっともクリアな設計ですが，それらのインタフェースが複雑
+なので，Sun の ZFS のように両者を組み合わせることもあります．
 
-Xv6's file system lacks many other features of modern file systems; for example,
-it lacks support for snapshots and incremental backup.
+xv6 のファイルシステムは，現代的なファイルシステムにはあるたくさんの機
+能が欠けています．たとえば，スナップショットの作成や，インクリメンタル
+なバックアップをすることがでません．
 
-Modern Unix systems allow many kinds of resources to be
-accessed with the same system calls as on-disk storage:
-named pipes, network connections,
-remotely-accessed network file systems, and monitoring and control
-interfaces such as
-\lstinline{/proc}.
-Instead of xv6's
-\lstinline{if}
-statements in
-\indexcode{fileread}
-and
-\indexcode{filewrite},
-these systems typically give each open file a table of function pointers,
-one per operation,
-and call the function pointer to invoke that inode's
-implementation of the call.
-Network file systems and user-level file systems 
-provide functions that turn those calls into network RPCs
-and wait for the response before returning.
+現代的な Unix システムでは，ディスク上のストレージと同じシステムコール
+を用いて，さまざまな種類のリソースにアクセスすることができます．名
+前付きパイプ，ネットワーク接続，遠隔からアクセスするネットワークファイ
+ルシステム，および \texttt{/proc} のような監視・制御用のインタフェース
+です．xv6 では， \indexcode{fileread} や \indexcode{filewrite} の中
+の\texttt{if} 文で条件分岐をしています．それに対して，現代的なシステムでは，開い
+たファイルごとにオペレーションに対応する関数ポインタのテー
+ブルを与えることで，inode ごとに特有の実装を呼び出せるようになっ
+ています．ネットワークファイルシステムとユーザレベルファイルシステムが
+提供する関数には，それらの呼び出しをネットワークごしの RPC (remote
+procedure call) に変換し，レスポンスが得られるまで待つ機能があります．
+
 %% 
 %%  -------------------------------------------
 %% 
-\section{Exercises}
+\section{練習問題}
 
 \begin{enumerate}
 
-\item Why panic in
-\lstinline{balloc} ?
-Can xv6 recover?
+\item \texttt{balloc} がパニックを起こす可能性があるのはなぜでしょうか？xv6 はそこから復帰できるでしょうか？
 
-\item Why panic in
-\lstinline{ialloc} ?
-Can xv6 recover?
+\item \texttt{ialloc} がパニックを起こす可能性があるのはなぜでしょうか？xv6 はそこから復帰できるでしょうか？
 
-\item Why doesn't
-\lstinline{filealloc}
-panic when it runs out of files?
-Why is this more common and therefore worth handling?
+\item ファイルを使い切ったときに \texttt{filealloc} がパニックを起こさ
+  ないのはなぜでしょうか？それがより一般的で，かつ処理する価値があるの
+  はなぜでしょうか？
 
-\item Suppose the file corresponding to 
-\lstinline{ip}
-gets unlinked by another process
-between 
-\lstinline{sys_link} 's
-calls to 
-\lstinline{iunlock(ip)}
-and
-\lstinline{dirlink}.
-Will the link be created correctly?
-Why or why not?
+\item \texttt{sys\_link} におい
+  て，\texttt{iunlock(ip)} と \texttt{dirlink}の間で，\texttt{ip} に対
+  応するファイルが別プロセスによってアンリンクされたとします．
+  リンクは正しく作られるでしょうか？それはなぜでしょうか？
 
-\item
-\lstinline{create}
-makes four function calls (one to
-\lstinline{ialloc}
-and three to
-\lstinline{dirlink})
-that it requires to succeed.
-If any doesn't,
-\lstinline{create}
-calls
-\lstinline{panic}.
-Why is this acceptable?
-Why can't any of those four calls fail?
+\item \texttt{create} は進むために必要な関数呼び出しを 4 回行います (そ
+  のうち 1 つは \texttt{ialloc} で，残り 3 つは \texttt{dirlink})．どれ
+  か 1 つでも欠ければ \texttt{create} は \texttt{panic} を呼びます．そ
+  れでも良いのはなぜでしょうか？これらの 4 つの関数コールがどれも失敗し
+  ないのはなぜでしょうか？
 
-\item
-\lstinline{sys_chdir}
-calls
-\lstinline{iunlock(ip)}
-before
-\lstinline{iput(cp->cwd)},
-which might try to lock
-\lstinline{cp->cwd},
-yet postponing
-\lstinline{iunlock(ip)}
-until after the
-\lstinline{iput}
-would not cause deadlocks.
-Why not?
+\item \texttt{sys\_chdir} は，\texttt{p->cwd} をロックするかもしれな
+  い\texttt{iput(cp->cwd)}の前に，\texttt{iunlock(ip)} を呼びます．しか
+  し，\texttt{iunlock(ip)} を \texttt{iput} のあとまで延期してもデッド
+  ロックは起きません．それはなぜでしょうか？
 
-\item Implement the
-\lstinline{lseek}
-system call.  Supporting
-\lstinline{lseek}
-will also require that you modify
-\lstinline{filewrite}
-to fill holes in the file with zero if
-\lstinline{lseek}
-sets
-\lstinline{off}
-beyond
-\lstinline{f->ip->size.}
+\item \texttt{lseek} システムコールを実装してください．
+  \texttt{lseek} をサポートするには，\texttt{filewrite} も改造する必要があります．
+  \texttt{lseek} が \texttt{f->ip->size} を超えた場合，ファイルのその領域をゼロで
+  埋める必要があるためです．
 
-\item Add
-\lstinline{O_TRUNC}
-and
-\lstinline{O_APPEND}
-to
-\lstinline{open},
-so that
-\lstinline{>}
-and
-\lstinline{>>}
-operators work in the shell.
+\item \texttt{open} に，\texttt{O\_TRUNC} と \texttt{O\_APPEND} を追加
+  して，シェルで \texttt{>} および \texttt{>>} オペレータが動くようにし
+  てください．
 
-\item Modify the file system to support symbolic links.
+\item ファイルシステムを改造して，シンボリックリンクをサポートしてください．
 
-\item Modify the file system to support named pipes.
+\item ファイルシステムを改造して，名前付きパイプをサポートしてください．
 
-\item Modify the file and VM system to support mmap.
+\item ファイルシステムと仮想メモリシステムを改造して，\texttt{mmap} をサポートしてください．
 
 \end{enumerate}
