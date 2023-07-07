@@ -1,4 +1,4 @@
-\documentclass[a4paper, 12pt, oneside]{jsbook}
+\documentclass[a4paper, 12pt, openany]{jsbook}
 \usepackage[driver=dvipdfmx,truedimen,margin=0cm]{geometry}
 \usepackage[T1]{fontenc}
 \usepackage{times}
@@ -51,6 +51,21 @@
 \begin{document}
 
 \maketitle
+
+% タイトル印刷用，空ページ挿入
+\clearpage
+~
+\pagestyle{empty}
+\clearpage
+\addtocounter{page}{-2}
+
+% 余白の設定
+\addtolength{\fullwidth}{0truemm}
+\setlength{\evensidemargin}{\oddsidemargin}
+\setlength{\evensidemargin}{-1truemm}
+\setlength{\oddsidemargin}{10truemm}
+
+\pagestyle{plain}
 
 \tableofcontents
 
